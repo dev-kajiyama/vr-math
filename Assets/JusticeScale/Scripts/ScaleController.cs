@@ -43,6 +43,29 @@ namespace JusticeScale.Scripts
             UpdateBalance();
         }
 
+        /// <summary>
+        /// 現在ソケットに入っている重さをすぐに読み直します。
+        /// チュートリアル開始時の初期ダンベル装填後など、Update を待たずに傾きを反映したいときに使います。
+        /// </summary>
+        public void RefreshBalance(bool snapImmediately)
+        {
+            if (!leftScale || !rightScale)
+            {
+                Debug.LogWarning("天びんの左右皿参照が設定されていません。");
+                return;
+            }
+
+            var targetWeightDifference = leftScale.TotalWeight - rightScale.TotalWeight;
+            WeightDifference = targetWeightDifference;
+
+            if (snapImmediately)
+            {
+                weightResultSmoothed = targetWeightDifference;
+            }
+
+            BalanceNormalized = Mathf.InverseLerp(-maxWeightDifference, maxWeightDifference, weightResultSmoothed);
+        }
+
         private void UpdateBalance()
         {
             var targetWeightDifference = leftScale.TotalWeight - rightScale.TotalWeight;

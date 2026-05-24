@@ -1,32 +1,108 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 namespace JusticeScale.Scripts.Scales
 {
     public class OverlapScale : Scale
     {
+        [Header("Socket Detection")]
+
+        [SerializeField]
+        [Tooltip("オンの場合、子の XRSocketInteractor に実際に吸着した物だけを重さとして数えます。")]
+        private bool countSocketSelectionsOnly = true;
+
         [Header("Capsule Config")]
-        
+
         [Min(0)] [SerializeField]
         private float capsuleLength = 1.5f; // The vertical length of the capsule used to detect objects above the scale
-        
+
         [Min(0)] [SerializeField]
         private float capsuleRadius = 0.5f; // The radius of the capsule, determining its width
-        
+
         [Min(0)] [SerializeField]
         private float capsuleOffsetHeight = 0.5f; // The vertical offset from the scale’s position to the start of the capsule
 
         private Vector3 _startPoint, _endPoint; // The calculated start and end points of the capsule
 
         private readonly HashSet<Rigidbody> _detectedObjects = new(); // Set of detected rigidbodies to avoid duplicates
+        private readonly HashSet<Rigidbody> _socketRigidbodies = new();
         private readonly List<Rigidbody> _objectsInContainer = new(); // List of objects currently inside the capsule area
         private GameObject _objectContainer; // A container object to parent detected objects
-        
+        private XRSocketInteractor[] _socketInteractors = System.Array.Empty<XRSocketInteractor>();
+
         private float _previousWeight; // Stores the previous total weight to optimize calculations
-        
-        // Returns the calculated total weight of objects detected inside the capsule
-        public override float TotalWeight => CalculateWeightInCapsule(); 
+
+        // Returns the calculated total weight of objects detected by socket selection, or by capsule fallback.
+        public override float TotalWeight
+        {
+            get
+            {
+                if (countSocketSelectionsOnly && HasSocketInteractors())
+                {
+                    return CalculateWeightInSockets();
+                }
+
+                return CalculateWeightInCapsule();
+            }
+        }
+
+        private void Awake()
+        {
+            RefreshSocketInteractors();
+        }
+
+        private void OnTransformChildrenChanged()
+        {
+            RefreshSocketInteractors();
+        }
+
+        private void RefreshSocketInteractors()
+        {
+            _socketInteractors = GetComponentsInChildren<XRSocketInteractor>(true);
+        }
+
+        private bool HasSocketInteractors()
+        {
+            if (_socketInteractors == null || _socketInteractors.Length == 0)
+            {
+                RefreshSocketInteractors();
+            }
+
+            return _socketInteractors is { Length: > 0 };
+        }
+
+        private float CalculateWeightInSockets()
+        {
+            weight = 0f;
+            _socketRigidbodies.Clear();
+
+            foreach (var socketInteractor in _socketInteractors)
+            {
+                if (socketInteractor == null || !socketInteractor.enabled || !socketInteractor.hasSelection)
+                {
+                    continue;
+                }
+
+                foreach (var interactable in socketInteractor.interactablesSelected)
+                {
+                    var rb = interactable.transform.GetComponentInParent<Rigidbody>();
+                    if (rb != null && _socketRigidbodies.Add(rb))
+                    {
+                        weight += rb.mass;
+                    }
+                }
+            }
+
+            if (Mathf.Abs(weight - _previousWeight) < 0.001f)
+            {
+                return _previousWeight;
+            }
+
+            _previousWeight = weight;
+            return weight;
+        }
 
         private float CalculateWeightInCapsule()
         {
@@ -37,7 +113,7 @@ namespace JusticeScale.Scripts.Scales
             var scaledCapsuleLength = capsuleLength * transform.lossyScale.normalized.magnitude;
             var scaledCapsuleRadius = capsuleRadius * transform.lossyScale.normalized.magnitude;
             var scaledCapsuleOffsetHeight = capsuleOffsetHeight * transform.lossyScale.normalized.magnitude;
-            
+
             // Define capsule start and end points based on configuration, adjusted for the scale
             _startPoint = transform.position + Vector3.up * scaledCapsuleOffsetHeight;
             _endPoint = _startPoint + Vector3.up * scaledCapsuleLength;
@@ -45,7 +121,7 @@ namespace JusticeScale.Scripts.Scales
             // Perform the OverlapCapsule detection, gathering all colliders within the volume
             // ReSharper disable once Unity.PreferNonAllocApi
             Collider[] colliders = Physics.OverlapCapsule(_startPoint, _endPoint, scaledCapsuleRadius, layerMask);
-            
+
             foreach (var collider in colliders)
             {
                 var rb = collider.GetComponent<Rigidbody>();
@@ -91,11 +167,11 @@ namespace JusticeScale.Scripts.Scales
 
             if (detectedObjects.Count == 0) Destroy(_objectContainer);
         }
-        
+
         private void OnDrawGizmosSelected()
         {
             if (transform == null) return;
-            
+
             // Adjust the capsule variables by the scale of the GameObject
             float scaledCapsuleLength = capsuleLength * 0.1f * transform.lossyScale.magnitude;
             float scaledCapsuleRadius = capsuleRadius * 0.1f * transform.lossyScale.magnitude;
