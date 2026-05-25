@@ -1185,6 +1185,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 202480728}
     m_Modifications:
+    - target: {fileID: 485632950710675415, guid: bcb57495fcce09f489f77036ad75269a, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 1776562771768086383, guid: bcb57495fcce09f489f77036ad75269a, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0.000000059604645
@@ -1692,6 +1696,11 @@ MonoBehaviour:
   problemText: {fileID: 0}
   operationText: {fileID: 0}
   answerText: {fileID: 0}
+  statusBackgrounds: []
+  normalBackgroundColor: {r: 0, g: 0, b: 0, a: 1}
+  correctBackgroundColor: {r: 0.05, g: 0.45, b: 0.22, a: 0.95}
+  nextButton: {fileID: 0}
+  nextButtonLabel: Next
   startWithDumbbellTutorial: 1
   tutorialTargetWeight: 3
   tutorialFixedSide: 0
@@ -4131,6 +4140,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 2490902158323056660, guid: be6206125a1104d46ac8248ab81b500d, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 6996843326637084070, guid: be6206125a1104d46ac8248ab81b500d, type: 3}
       propertyPath: m_Name
       value: Dumbbell8
@@ -4601,6 +4614,10 @@ PrefabInstance:
     - target: {fileID: 1453043896317299973, guid: 9e279e9665bba844b87b9284ac6767d8, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6269486349508029854, guid: 9e279e9665bba844b87b9284ac6767d8, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
       objectReference: {fileID: 0}
     - target: {fileID: 8108838203725185138, guid: 9e279e9665bba844b87b9284ac6767d8, type: 3}
       propertyPath: m_Name
@@ -6107,6 +6124,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 878657734}
     m_Modifications:
+    - target: {fileID: 3485673967831852916, guid: 8233cbca1bbedc648a74dd3a54a99fe5, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 4628944566256433700, guid: 8233cbca1bbedc648a74dd3a54a99fe5, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.6111725
@@ -6376,6 +6397,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 1
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &602859959
 GameObject:
   m_ObjectHideFlags: 0
@@ -6849,6 +6874,10 @@ PrefabInstance:
     - target: {fileID: 1789884715880914714, guid: 335b1f690c1b00e47bd487445ff68ab0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5288211276949542234, guid: 335b1f690c1b00e47bd487445ff68ab0, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
       objectReference: {fileID: 0}
     - target: {fileID: 8843590080527517133, guid: 335b1f690c1b00e47bd487445ff68ab0, type: 3}
       propertyPath: m_Name
@@ -8402,6 +8431,10 @@ PrefabInstance:
     - target: {fileID: 1522185778745742362, guid: 3abdf3dee510ddc43b83468ef3dbf2f1, type: 3}
       propertyPath: m_Name
       value: Dumbbell10
+      objectReference: {fileID: 0}
+    - target: {fileID: 3644313401095429628, guid: 3abdf3dee510ddc43b83468ef3dbf2f1, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
       objectReference: {fileID: 0}
     - target: {fileID: 6329114218892623418, guid: 3abdf3dee510ddc43b83468ef3dbf2f1, type: 3}
       propertyPath: m_LocalPosition.x
@@ -10603,6 +10636,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 8
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &976442729
 GameObject:
   m_ObjectHideFlags: 0
@@ -12625,6 +12662,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 6981861436454259809, guid: 40931fa63fc051a4c8781c0e3c754090, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -14387,6 +14428,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 3
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!114 &1393242442
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -14590,7 +14635,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 6d7b937aca7f1994db4ce60f9c2eb16d, type: 2}
+  - {fileID: 0}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -14646,6 +14691,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 1323265795}
     m_Modifications:
+    - target: {fileID: 1498601148400548693, guid: 8abd05811ff818c46b0422ba5d29d749, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 4804138134102568199, guid: 8abd05811ff818c46b0422ba5d29d749, type: 3}
       propertyPath: m_Name
       value: Dumbbell4
@@ -14903,6 +14952,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 4
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &1410773172 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 8108838203725185138, guid: 9e279e9665bba844b87b9284ac6767d8, type: 3}
@@ -15099,6 +15152,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 9
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!114 &1415647738 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 5005649301645334909, guid: 085ce58b196caa446a8545c9dd388793, type: 3}
@@ -15395,6 +15452,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 6
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &1426321816
 GameObject:
   m_ObjectHideFlags: 0
@@ -15919,6 +15980,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 875335988}
     m_Modifications:
+    - target: {fileID: 3755155219126727784, guid: 15e86ce6fc4b69b489daf7a75bb4cc9b, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 0}
     - target: {fileID: 6377415433454589930, guid: 15e86ce6fc4b69b489daf7a75bb4cc9b, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.6379048
@@ -16843,6 +16908,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 2
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &1555512242
 GameObject:
   m_ObjectHideFlags: 0
@@ -17599,6 +17668,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 10
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &1624025054
 GameObject:
   m_ObjectHideFlags: 0
@@ -19871,6 +19944,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 3
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &1912946111
 GameObject:
   m_ObjectHideFlags: 0
@@ -19957,6 +20034,10 @@ PrefabInstance:
     - target: {fileID: 2803185311404648678, guid: 00a857a0fb93a1c42977bef27588c019, type: 3}
       propertyPath: m_Name
       value: Dumbbell7
+      objectReference: {fileID: 0}
+    - target: {fileID: 5704083009180701344, guid: 00a857a0fb93a1c42977bef27588c019, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
       objectReference: {fileID: 0}
     - target: {fileID: 7067030060143044851, guid: 00a857a0fb93a1c42977bef27588c019, type: 3}
       propertyPath: m_LocalPosition.x
@@ -20211,6 +20292,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 7
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!1 &1941775764
 GameObject:
   m_ObjectHideFlags: 0
@@ -20864,6 +20949,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
   weight: 5
+  weightMaterial: {fileID: 0}
+  metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
+  metallic: 1
+  smoothness: 0.82
 --- !u!65 &1970608853
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -24918,6 +25007,63 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 6923299894900556538, guid: c72778ad3d61c1c4286eb3a2aeb02741, type: 3}
   m_PrefabInstance: {fileID: 6242179681828506539}
   m_PrefabAsset: {fileID: 0}
+--- !u!1001 &6562233645283033246
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 8130397582680773010, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_Name
+      value: StandardWeight
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -1.55
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.65
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -0.2
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8466554110807268313, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: ce9052fee29560f47a93cb6285ef4c20, type: 3}
 --- !u!1001 &8082471361860586650
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -25061,3 +25207,4 @@ SceneRoots:
   - {fileID: 1238654713}
   - {fileID: 204105027}
   - {fileID: 136238884}
+  - {fileID: 6562233645283033246}
