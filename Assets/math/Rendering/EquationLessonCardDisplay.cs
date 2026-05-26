@@ -105,6 +105,22 @@ namespace VrMath.Rendering
         private UnityAction setButtonAction;
         private bool processButtonsEnabled;
 
+        public string CurrentProblemText { get; private set; } = "";
+
+        public string CurrentDisplayedText
+        {
+            get
+            {
+                SanitizeTextReferences();
+                if (combinedText != null && !string.IsNullOrWhiteSpace(combinedText.text))
+                {
+                    return combinedText.text;
+                }
+
+                return CurrentProblemText;
+            }
+        }
+
         private void Awake()
         {
             AutoAssignTextReferences();
@@ -141,6 +157,7 @@ namespace VrMath.Rendering
         /// </summary>
         public void Show(string newTitle, string newProblem, string newOperation, string newAnswer)
         {
+            CurrentProblemText = newProblem;
             SanitizeTextReferences();
             SetCorrectState(false);
 

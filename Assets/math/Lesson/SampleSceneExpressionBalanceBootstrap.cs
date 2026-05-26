@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.Interaction.Toolkit;
@@ -20,6 +21,7 @@ namespace VrMath.Lesson
         private const int FixedVariableAnswer = 1;
         private const int FixedVariableOffset = 2;
         private const string SetDebugPrefix = "[ExpressionBalance:Set]";
+        private const string SocketDebugPrefix = "[ExpressionBalance:Socket]";
 
         private enum LessonStage
         {
@@ -140,6 +142,7 @@ namespace VrMath.Lesson
         private int lastAdvanceFrame = -1;
         private bool showConfiguredVariableEquation;
         private EquationLessonCardDisplay subscribedCardDisplay;
+        private readonly HashSet<XRSocketInteractor> socketsWithDebugLogging = new();
 
         /// <summary>
         /// 起動直後にシーン参照を解決し、最初のカード表示を出します。
@@ -341,6 +344,16 @@ namespace VrMath.Lesson
 
         }
 
+        private void ResetBoardTiltImmediate()
+        {
+            if (boardVisual == null)
+            {
+                return;
+            }
+
+            boardVisual.localRotation = boardBaseRotation;
+        }
+
         private BalanceSide UnknownSide => fixedSide == BalanceSide.Left ? BalanceSide.Right : BalanceSide.Left;
 
         /// <summary>
@@ -532,6 +545,7 @@ namespace VrMath.Lesson
                 .ToList();
 
             ResetBoardForEquationPlacement(allWeights, variableBox);
+            ResetBoardTiltImmediate();
             variableExpressionObjectsPlaced = false;
             showConfiguredVariableEquation = lessonStage == LessonStage.VariableExpression;
             lastExpression = "";
@@ -563,7 +577,11 @@ namespace VrMath.Lesson
         {
             Debug.Log($"{SetDebugPrefix} Set pressed. stage={lessonStage}, answer={answerValue}, offset={equationOffset}, equation=x + {equationOffset} = {answerValue + equationOffset}");
 
-            if (lessonStage == LessonStage.BalanceOnly)
+            if (TryApplyDisplayedVariableEquation())
+            {
+                Debug.Log($"{SetDebugPrefix} Applied displayed equation before placement. answer={answerValue}, offset={equationOffset}, equation=x + {equationOffset} = {answerValue + equationOffset}");
+            }
+            else if (lessonStage == LessonStage.BalanceOnly)
             {
                 Debug.Log($"{SetDebugPrefix} BalanceOnly stage detected. Advancing to fixed variable equation before placement.");
                 AdvanceToFixedVariableExpressionStage();
@@ -572,10 +590,49 @@ namespace VrMath.Lesson
             showConfiguredVariableEquation = false;
             variableExpressionObjectsPlaced = false;
             lastExpression = "";
+            ResetBoardTiltImmediate();
             TryPlaceVariableExpressionObjects();
             UpdateVariableExpressionCard();
+            ResetBoardTiltImmediate();
 
             Debug.Log($"{SetDebugPrefix} Set finished. leftSelections={DescribeSocketSelections(leftSockets)}, rightSelections={DescribeSocketSelections(rightSockets)}");
+        }
+
+        private bool TryApplyDisplayedVariableEquation()
+        {
+            if (cardDisplay == null)
+            {
+                return false;
+            }
+
+            var rawText = cardDisplay.CurrentDisplayedText;
+            if (string.IsNullOrWhiteSpace(rawText))
+            {
+                return false;
+            }
+
+            var plainText = Regex.Replace(rawText, "<.*?>", "");
+            var match = Regex.Match(plainText, @"x\s*\+\s*(\d+)\s*=\s*(\d+)", RegexOptions.IgnoreCase);
+            if (!match.Success)
+            {
+                return false;
+            }
+
+            var parsedOffset = int.Parse(match.Groups[1].Value);
+            var parsedRightSide = int.Parse(match.Groups[2].Value);
+            var parsedAnswer = parsedRightSide - parsedOffset;
+            if (parsedOffset < 0 || parsedAnswer <= 0)
+            {
+                Debug.LogWarning($"{SetDebugPrefix} Displayed equation was ignored because it is invalid: '{plainText}'");
+                return false;
+            }
+
+            equationOffset = parsedOffset;
+            answerValue = parsedAnswer;
+            lessonStage = LessonStage.VariableExpression;
+            variableProblemIndex = Mathf.Max(1, variableProblemIndex);
+            showConfiguredVariableEquation = false;
+            return true;
         }
 
         /// <summary>
@@ -734,6 +791,7 @@ namespace VrMath.Lesson
                 }
 
                 ConfigureStaticSocket(socket);
+                RegisterSocketDebugLogging(socket);
 
                 var records = side == BalanceSide.Left ? leftRecords : rightRecords;
                 records.Add((socket, index, localX));
@@ -818,6 +876,58 @@ namespace VrMath.Lesson
             socket.showInteractableHoverMeshes = false;
             socket.hoverSocketSnapping = true;
             socket.recycleDelayTime = 0.05f;
+        }
+
+        /// <summary>
+        /// 実際にソケットへ入った瞬間、左右/Index/入った物体をログへ出します。
+        /// </summary>
+        private void RegisterSocketDebugLogging(XRSocketInteractor socket)
+        {
+            if (socket == null || !socketsWithDebugLogging.Add(socket))
+            {
+                return;
+            }
+
+            socket.selectEntered.AddListener(args => LogSocketEntered(socket, args.interactableObject));
+        }
+
+        private void LogSocketEntered(XRSocketInteractor socket, IXRSelectInteractable interactable)
+        {
+            var hasIndex = TryGetSocketVisualIndex(socket, out var side, out var index);
+            var sideText = hasIndex ? side.ToString() : "Unknown";
+            var indexText = hasIndex ? index.ToString() : "unknown";
+
+            Debug.Log(
+                $"{SocketDebugPrefix} Entered. side={sideText}, index={indexText}, object={DescribeSocketInteractable(interactable)}, socket={DescribeSocket(socket)}");
+        }
+
+        private bool TryGetSocketVisualIndex(XRSocketInteractor socket, out BalanceSide side, out int index)
+        {
+            side = BalanceSide.Left;
+            index = -1;
+
+            if (socket == null)
+            {
+                return false;
+            }
+
+            var leftIndex = leftSockets.IndexOf(socket);
+            if (leftIndex >= 0)
+            {
+                side = BalanceSide.Left;
+                index = leftIndex;
+                return true;
+            }
+
+            var rightIndex = rightSockets.IndexOf(socket);
+            if (rightIndex >= 0)
+            {
+                side = BalanceSide.Right;
+                index = rightIndex;
+                return true;
+            }
+
+            return TryResolveStaticSocket(socket, out side, out index, out _) && index != int.MaxValue;
         }
 
         /// <summary>
@@ -1075,6 +1185,28 @@ namespace VrMath.Lesson
             return string.Join(", ", socket.interactablesSelected.Select(interactable => interactable?.transform != null ? GetTransformPath(interactable.transform) : "null"));
         }
 
+        private static string DescribeSocketInteractable(IXRSelectInteractable interactable)
+        {
+            if (interactable?.transform == null)
+            {
+                return "null";
+            }
+
+            var transform = interactable.transform;
+            var weight = transform.GetComponentInParent<WeightedDumbbell>();
+            if (weight != null)
+            {
+                return $"{GetTransformPath(weight.transform)}(type=weight, value={weight.Weight.Value}, pos={weight.transform.position:F3})";
+            }
+
+            if (LooksLikeVariableTransform(transform))
+            {
+                return $"{GetTransformPath(transform)}(type=x, pos={transform.position:F3})";
+            }
+
+            return $"{GetTransformPath(transform)}(type=other, pos={transform.position:F3})";
+        }
+
         private static string DescribeSocketSelections(IEnumerable<XRSocketInteractor> sockets)
         {
             if (sockets == null)
@@ -1140,9 +1272,9 @@ namespace VrMath.Lesson
 
                 if (weight.TryGetComponent(out Rigidbody rb))
                 {
+                    rb.isKinematic = false;
                     rb.linearVelocity = Vector3.zero;
                     rb.angularVelocity = Vector3.zero;
-                    rb.isKinematic = false;
                 }
             }
         }
@@ -1174,9 +1306,9 @@ namespace VrMath.Lesson
 
             if (variableBox.TryGetComponent(out Rigidbody rb))
             {
+                rb.isKinematic = false;
                 rb.linearVelocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = false;
             }
         }
 
@@ -1282,6 +1414,7 @@ namespace VrMath.Lesson
 
             if (variableBox.TryGetComponent(out Rigidbody rb))
             {
+                rb.isKinematic = false;
                 rb.linearVelocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
                 rb.isKinematic = true;
@@ -1561,6 +1694,7 @@ namespace VrMath.Lesson
 
             if (weight.TryGetComponent(out Rigidbody rb))
             {
+                rb.isKinematic = false;
                 rb.linearVelocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
                 rb.isKinematic = true;
