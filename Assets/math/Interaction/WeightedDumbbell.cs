@@ -2,6 +2,27 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /// <summary>
+/// 天びんや式が読む、教材上の重さ値です。
+/// </summary>
+[System.Serializable]
+public sealed class WeightValue
+{
+    [SerializeField, Min(0f), Tooltip("天秤計算に使う重りの重さです。")]
+    private float value = 1f;
+
+    public WeightValue(float value)
+    {
+        Value = value;
+    }
+
+    public float Value
+    {
+        get => value;
+        set => this.value = Mathf.Max(0f, value);
+    }
+}
+
+/// <summary>
 /// 重りの教材上の重さを保持し、天秤が読む Rigidbody.mass と同期します。
 /// 標準分銅として見えるように、子の Renderer へ金属質な材質を適用します。
 /// </summary>
@@ -10,8 +31,8 @@ using UnityEngine.Rendering;
 [RequireComponent(typeof(Rigidbody))]
 public sealed class WeightedDumbbell : MonoBehaviour
 {
-    [SerializeField, Min(0f), Tooltip("天秤計算に使う重りの重さです。")]
-    private float weight = 1f;
+    [SerializeField, Tooltip("天秤計算に使う重りの値です。")]
+    private WeightValue weight = new(1f);
 
     [Header("見た目")]
     [SerializeField, Tooltip("未設定なら画像の分銅に近い銀黒の金属材質を自動生成します。")]
@@ -32,25 +53,18 @@ public sealed class WeightedDumbbell : MonoBehaviour
     /// 天秤計算に使う重りの重さです。
     /// 値を変更すると、この GameObject の Rigidbody.mass にも反映されます。
     /// </summary>
-    public float Weight
-    {
-        get => weight;
-        set
-        {
-            weight = Mathf.Max(0f, value);
-            ApplyToRigidbody();
-        }
-    }
+    public WeightValue Weight => weight;
 
     private void Awake()
     {
+        weight ??= new WeightValue(1f);
         ApplyToRigidbody();
         ApplyMetallicAppearance();
     }
 
     private void OnValidate()
     {
-        weight = Mathf.Max(0f, weight);
+        weight ??= new WeightValue(1f);
         ApplyToRigidbody();
         ApplyMetallicAppearance();
     }
@@ -59,7 +73,7 @@ public sealed class WeightedDumbbell : MonoBehaviour
     {
         if (TryGetComponent(out Rigidbody targetRigidbody))
         {
-            targetRigidbody.mass = weight;
+            targetRigidbody.mass = weight?.Value ?? 0f;
         }
     }
 

@@ -1,7 +1,12 @@
+using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 using VrMath.Core;
+using VrMath.Interaction;
 
 namespace VrMath.Rendering
 {
@@ -10,6 +15,8 @@ namespace VrMath.Rendering
     /// </summary>
     public sealed class EquationLessonCardDisplay : MonoBehaviour
     {
+        private const string PrimaryCombinedTextName = "Modal Text";
+
         [SerializeField, Tooltip("1つの TextMeshPro に全内容をまとめて表示したい場合に使います。")]
         private TMP_Text combinedText;
 
@@ -37,6 +44,15 @@ namespace VrMath.Rendering
 
         [SerializeField, Tooltip("正解後に次へ進むボタン。未設定なら自動生成します。")]
         private Button nextButton;
+
+        [SerializeField, Tooltip("平均台上の選択物をクリアするボタン。")]
+        private Button clearButton;
+
+        [SerializeField, Tooltip("平均台上の状態から式を生成するボタン。")]
+        private Button generateButton;
+
+        [SerializeField, Tooltip("現在の式から平均台上へ配置するボタン。")]
+        private Button setButton;
 
         [SerializeField, Tooltip("次へ進むボタンに表示する文字。")]
         private string nextButtonLabel = "Next";
@@ -83,12 +99,18 @@ namespace VrMath.Rendering
 
         private int currentAnswer;
         private int currentOffset;
+        private UnityAction nextButtonAction;
+        private UnityAction clearButtonAction;
+        private UnityAction generateButtonAction;
+        private UnityAction setButtonAction;
+        private bool processButtonsEnabled;
 
         private void Awake()
         {
             AutoAssignTextReferences();
             AutoAssignStatusBackgrounds();
             EnsureNextButton();
+            EnsureUiInputAvailable();
             SetCorrectState(false);
         }
 
@@ -119,6 +141,7 @@ namespace VrMath.Rendering
         /// </summary>
         public void Show(string newTitle, string newProblem, string newOperation, string newAnswer)
         {
+            SanitizeTextReferences();
             SetCorrectState(false);
 
             if (combinedText != null)
@@ -155,8 +178,16 @@ namespace VrMath.Rendering
         /// </summary>
         public void ShowDumbbellTutorialProgress(BalanceSide fixedSide, int targetWeight, string placedExpression)
         {
+            ShowDumbbellTutorialProgress(fixedSide, targetWeight, placedExpression, -1);
+        }
+
+        /// <summary>
+        /// 学習者が置いたダンベルを式へ反映し、未均衡なら不等号で表示します。
+        /// </summary>
+        public void ShowDumbbellTutorialProgress(BalanceSide fixedSide, int targetWeight, string placedExpression, int placedWeight)
+        {
             var problem = new DumbbellBalanceTutorialProblem(fixedSide, targetWeight);
-            Show("", problem.BuildProgressEquation(placedExpression), "", "");
+            Show("", problem.BuildProgressEquation(placedExpression, placedWeight), "", "");
         }
 
         /// <summary>
@@ -180,11 +211,51 @@ namespace VrMath.Rendering
         }
 
         /// <summary>
+        /// 指定した固定辺と重さで、置いた分銅の内訳つきの成功表示にします。
+        /// </summary>
+        public void ShowDumbbellTutorialCorrect(BalanceSide fixedSide, int targetWeight, string placedExpression)
+        {
+            var policy = new DumbbellBalanceTutorialPolicy(fixedSide, targetWeight);
+            Show(policy.BuildCorrectCard(placedExpression));
+            SetCorrectState(true);
+        }
+
+        /// <summary>
         /// Core が作ったカード文言を表示します。
         /// </summary>
         public void Show(LessonCardContent content)
         {
             Show(content.Title, content.Problem, content.Operation, content.Answer);
+        }
+
+        /// <summary>
+        /// 外部のレッスン制御から Next ボタンの遷移先を差し替えます。
+        /// </summary>
+        public void SetNextButtonAction(UnityAction action)
+        {
+            nextButtonAction = action;
+            EnsureNextButton();
+            ConfigureNextButtonInteraction();
+        }
+
+        /// <summary>
+        /// デバッグしやすいよう、式ゲームの処理を Clear / Gen / Set / Next に分けて接続します。
+        /// </summary>
+        public void SetProcessButtonActions(UnityAction clearAction, UnityAction generateAction, UnityAction setAction, UnityAction nextAction)
+        {
+            clearButtonAction = clearAction;
+            generateButtonAction = generateAction;
+            setButtonAction = setAction;
+            nextButtonAction = nextAction;
+            processButtonsEnabled = true;
+
+            EnsureNextButton();
+            EnsureProcessButtons();
+            ConfigureProcessButton(clearButton, clearButtonAction, "Clear");
+            ConfigureProcessButton(generateButton, generateButtonAction, "Gen");
+            ConfigureProcessButton(setButton, setButtonAction, "Set");
+            ConfigureNextButtonInteraction();
+            SetProcessButtonsVisible(true);
         }
 
         /// <summary>
@@ -229,14 +300,34 @@ namespace VrMath.Rendering
             SetCorrectState(true);
         }
 
+        public void ShowEquationCorrect(string solvedEquation, string solvedAnswer)
+        {
+            Show("", solvedEquation, "せいかい！", solvedAnswer);
+            SetCorrectState(true);
+        }
+
         private void AutoAssignTextReferences()
         {
+            SanitizeTextReferences();
+            var primaryText = FindEquationTextByName(PrimaryCombinedTextName);
+            if (primaryText != null)
+            {
+                combinedText = primaryText;
+                titleText = null;
+                problemText = null;
+                operationText = null;
+                answerText = null;
+                return;
+            }
+
             if (combinedText != null || titleText != null || problemText != null || operationText != null || answerText != null)
             {
                 return;
             }
 
-            var texts = GetComponentsInChildren<TMP_Text>(true);
+            var texts = GetComponentsInChildren<TMP_Text>(true)
+                .Where(IsEquationText)
+                .ToArray();
             if (texts.Length == 1)
             {
                 combinedText = texts[0];
@@ -247,6 +338,27 @@ namespace VrMath.Rendering
             if (texts.Length > 1) problemText = texts[1];
             if (texts.Length > 2) operationText = texts[2];
             if (texts.Length > 3) answerText = texts[3];
+        }
+
+        private void SanitizeTextReferences()
+        {
+            if (!IsEquationText(combinedText)) combinedText = null;
+            if (!IsEquationText(titleText)) titleText = null;
+            if (!IsEquationText(problemText)) problemText = null;
+            if (!IsEquationText(operationText)) operationText = null;
+            if (!IsEquationText(answerText)) answerText = null;
+        }
+
+        private static bool IsEquationText(TMP_Text text)
+        {
+            return text != null && text.GetComponentInParent<Button>(true) == null;
+        }
+
+        private TMP_Text FindEquationTextByName(string objectName)
+        {
+            return GetComponentsInChildren<TMP_Text>(true)
+                .Where(IsEquationText)
+                .FirstOrDefault(text => string.Equals(text.name, objectName, System.StringComparison.OrdinalIgnoreCase));
         }
 
         private void AutoAssignStatusBackgrounds()
@@ -273,11 +385,7 @@ namespace VrMath.Rendering
         {
             if (nextButton == null)
             {
-                var nextTransform = transform.Find("NextButton");
-                if (nextTransform != null)
-                {
-                    nextButton = nextTransform.GetComponent<Button>();
-                }
+                nextButton = FindExistingNextButton();
             }
 
             if (nextButton == null)
@@ -285,9 +393,187 @@ namespace VrMath.Rendering
                 nextButton = CreateNextButton();
             }
 
-            nextButton.onClick.RemoveListener(ShowRandomProblem);
-            nextButton.onClick.AddListener(ShowRandomProblem);
+            ConfigureNextButtonInteraction();
+
             nextButton.gameObject.SetActive(false);
+        }
+
+        private Button FindExistingNextButton()
+        {
+            var namedNextButton = FindButtonByNames("Next", "NextButton");
+            if (namedNextButton != null)
+            {
+                return namedNextButton;
+            }
+
+            var specialButton = FindDirectChildButton("Text Poke Button Special");
+            if (specialButton != null)
+            {
+                return specialButton;
+            }
+
+            return null;
+        }
+
+        private Button FindDirectChildButton(string childName)
+        {
+            for (var i = 0; i < transform.childCount; i++)
+            {
+                var child = transform.GetChild(i);
+                if (child.name != childName)
+                {
+                    continue;
+                }
+
+                var button = child.GetComponent<Button>();
+                if (button != null)
+                {
+                    return button;
+                }
+            }
+
+            return null;
+        }
+
+        private Button FindButtonByNames(params string[] names)
+        {
+            var buttons = GetComponentsInChildren<Button>(true);
+            foreach (var name in names)
+            {
+                foreach (var button in buttons)
+                {
+                    if (button != null && string.Equals(button.name, name, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        return button;
+                    }
+                }
+            }
+
+            return FindSceneButtonByNames(names);
+        }
+
+        private Button FindSceneButtonByNames(params string[] names)
+        {
+            var buttons = FindObjectsByType<Button>(FindObjectsInactive.Include);
+            return buttons
+                .Where(button => button != null && names.Any(name => string.Equals(button.name, name, System.StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(button => Vector3.SqrMagnitude(button.transform.position - transform.position))
+                .FirstOrDefault();
+        }
+
+        private void EnsureProcessButtons()
+        {
+            if (clearButton == null)
+            {
+                clearButton = FindButtonByNames("Clear", "ClearButton");
+                if (clearButton == null)
+                {
+                    clearButton = CreateProcessButton("ClearButton", "Clear");
+                    LayoutProcessButton(clearButton, 0, "Clear");
+                }
+            }
+
+            if (generateButton == null)
+            {
+                generateButton = FindButtonByNames("Gen", "Generate", "GenerateButton");
+                if (generateButton == null)
+                {
+                    generateButton = CreateProcessButton("GenerateButton", "Gen");
+                    LayoutProcessButton(generateButton, 1, "Gen");
+                }
+            }
+
+            if (setButton == null)
+            {
+                setButton = FindButtonByNames("Set", "SetButton");
+                if (setButton == null)
+                {
+                    setButton = CreateProcessButton("SetButton", "Set");
+                    LayoutProcessButton(setButton, 2, "Set");
+                }
+            }
+        }
+
+        private Button CreateProcessButton(string objectName, string labelText)
+        {
+            var buttonObject = new GameObject(objectName, typeof(RectTransform), typeof(Image), typeof(Button));
+            buttonObject.transform.SetParent(transform, false);
+
+            var image = buttonObject.GetComponent<Image>();
+            image.color = new Color(0.08f, 0.45f, 0.85f, 0.95f);
+            image.raycastTarget = true;
+
+            var labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+            labelObject.transform.SetParent(buttonObject.transform, false);
+
+            var labelRect = labelObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+
+            var label = labelObject.GetComponent<TextMeshProUGUI>();
+            label.text = labelText;
+            label.fontSize = 34f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = Color.white;
+            label.raycastTarget = false;
+
+            return buttonObject.GetComponent<Button>();
+        }
+
+        private void LayoutProcessButton(Button button, int index, string label)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.name = index switch
+            {
+                0 => "ClearButton",
+                1 => "GenerateButton",
+                2 => "SetButton",
+                _ => button.name
+            };
+
+            var rectTransform = button.GetComponent<RectTransform>();
+            rectTransform.anchorMin = new Vector2(0.5f, 0f);
+            rectTransform.anchorMax = new Vector2(0.5f, 0f);
+            rectTransform.pivot = new Vector2(0.5f, 0f);
+            rectTransform.anchoredPosition = new Vector2(-330f + index * 220f, 28f);
+            rectTransform.sizeDelta = new Vector2(190f, 66f);
+
+        }
+
+        private void ConfigureProcessButton(Button button, UnityAction action, string label)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.onClick.RemoveAllListeners();
+            if (action != null)
+            {
+                button.onClick.AddListener(action);
+            }
+
+            var image = button.GetComponent<Image>();
+            if (image != null)
+            {
+                image.enabled = true;
+                image.raycastTarget = true;
+            }
+
+            var proxy = button.GetComponent<XRButtonSelectProxy>();
+            if (proxy == null)
+            {
+                proxy = button.gameObject.AddComponent<XRButtonSelectProxy>();
+            }
+
+            proxy.SetOverrideAction(action);
+            proxy.RefreshCollider();
         }
 
         private Button CreateNextButton()
@@ -325,6 +611,138 @@ namespace VrMath.Rendering
             return buttonObject.GetComponent<Button>();
         }
 
+        private void ConfigureNextButtonInteraction()
+        {
+            if (nextButton == null)
+            {
+                return;
+            }
+
+            nextButton.onClick.RemoveAllListeners();
+            nextButton.onClick.AddListener(InvokeNextButtonAction);
+
+            var image = nextButton.GetComponent<Image>();
+            if (image != null)
+            {
+                image.enabled = true;
+                image.raycastTarget = true;
+            }
+
+            var proxy = nextButton.GetComponent<XRButtonSelectProxy>();
+            if (proxy == null)
+            {
+                proxy = nextButton.gameObject.AddComponent<XRButtonSelectProxy>();
+            }
+
+            proxy.SetOverrideAction(InvokeNextButtonAction);
+            proxy.RefreshCollider();
+        }
+
+        private void InvokeNextButtonAction()
+        {
+            if (nextButtonAction != null)
+            {
+                nextButtonAction.Invoke();
+                return;
+            }
+
+            ShowRandomProblem();
+        }
+
+        private void SetProcessButtonsVisible(bool visible)
+        {
+            if (clearButton != null)
+            {
+                clearButton.gameObject.SetActive(visible);
+            }
+
+            if (generateButton != null)
+            {
+                generateButton.gameObject.SetActive(visible);
+            }
+
+            if (setButton != null)
+            {
+                setButton.gameObject.SetActive(visible);
+            }
+
+            if (nextButton != null && processButtonsEnabled)
+            {
+                nextButton.gameObject.SetActive(visible);
+            }
+        }
+
+        private void EnsureUiInputAvailable()
+        {
+            EnsureCanvasRaycasters();
+            EnsureEventSystem();
+        }
+
+        private void EnsureCanvasRaycasters()
+        {
+            var canvas = GetComponentInParent<Canvas>();
+            if (canvas == null)
+            {
+                return;
+            }
+
+            canvas.enabled = true;
+
+            if (canvas.GetComponent<GraphicRaycaster>() == null)
+            {
+                canvas.gameObject.AddComponent<GraphicRaycaster>();
+            }
+
+            if (canvas.GetComponent<TrackedDeviceGraphicRaycaster>() == null)
+            {
+                canvas.gameObject.AddComponent<TrackedDeviceGraphicRaycaster>();
+            }
+        }
+
+        private static void EnsureEventSystem()
+        {
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null)
+            {
+                foreach (var candidate in FindObjectsByType<EventSystem>(FindObjectsInactive.Include))
+                {
+                    eventSystem = candidate;
+                    break;
+                }
+            }
+
+            if (eventSystem == null)
+            {
+                var eventSystemObject = new GameObject("EventSystem", typeof(EventSystem), typeof(XRUIInputModule));
+                eventSystemObject.SetActive(true);
+                return;
+            }
+
+            if (!eventSystem.gameObject.activeSelf)
+            {
+                eventSystem.gameObject.SetActive(true);
+            }
+
+            eventSystem.enabled = true;
+
+            var hasEnabledInputModule = false;
+            foreach (var inputModule in eventSystem.GetComponents<BaseInputModule>())
+            {
+                if (inputModule == null)
+                {
+                    continue;
+                }
+
+                inputModule.enabled = true;
+                hasEnabledInputModule = true;
+            }
+
+            if (!hasEnabledInputModule)
+            {
+                eventSystem.gameObject.AddComponent<XRUIInputModule>();
+            }
+        }
+
         private void SetCorrectState(bool isCorrect)
         {
             var color = isCorrect ? correctBackgroundColor : normalBackgroundColor;
@@ -341,7 +759,18 @@ namespace VrMath.Rendering
 
             if (nextButton != null)
             {
-                nextButton.gameObject.SetActive(isCorrect);
+                if (isCorrect || processButtonsEnabled)
+                {
+                    nextButton.transform.SetAsLastSibling();
+                    ConfigureNextButtonInteraction();
+                }
+
+                nextButton.gameObject.SetActive(processButtonsEnabled || isCorrect);
+            }
+
+            if (processButtonsEnabled)
+            {
+                SetProcessButtonsVisible(true);
             }
         }
 

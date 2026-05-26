@@ -49,5 +49,17 @@ namespace VrMath.Core
                 "",
                 "");
         }
+
+        /// <summary>
+        /// 均衡できたときの成功表示を、置いた分銅の内訳つきで作ります。
+        /// </summary>
+        public LessonCardContent BuildCorrectCard(string unknownExpression)
+        {
+            return new LessonCardContent(
+                "",
+                problem.BuildSolvedEquation(unknownExpression),
+                "",
+                "");
+        }
     }
 }

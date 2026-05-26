@@ -1,4 +1,3 @@
-using TMPro;
 using System.Collections;
 using System.Collections.Generic;
 using JusticeScale.Scripts;
@@ -12,21 +11,21 @@ using VrMath.Rendering;
 namespace VrMath.Lesson
 {
     /// <summary>
-    /// ダンベルだけで均衡を作るチュートリアル問題を、シーン上の天びんへ配置します。
-    /// 固定側の数に対応するダンベルを複製し、指定された皿のソケットへ正式に差し込みます。
+    /// 小さい分銅だけで均衡を作るチュートリアル問題を、シーン上の天びんへ配置します。
+    /// 固定側には重さ1の分銅を目標数だけ複製し、学習者も同じ分銅を複数置いて均衡を作ります。
     /// </summary>
     public sealed class DumbbellBalanceTutorialLesson : MonoBehaviour
     {
-        [SerializeField, Tooltip("最初からダンベルを置いておく辺です。")]
+        [SerializeField, Tooltip("最初から分銅を置いておく辺です。")]
         private BalanceSide fixedSide = BalanceSide.Left;
 
-        [SerializeField, Min(1), Tooltip("最初から置いておくダンベルの重さです。")]
+        [SerializeField, Min(1), Tooltip("最初から置いておく分銅の合計数です。重さ1の分銅をこの数だけ置きます。")]
         private int fixedWeight = 3;
 
-        [SerializeField, Tooltip("左辺の固定ダンベルを入れるソケットです。")]
+        [SerializeField, Tooltip("左辺の固定分銅を入れる最初のソケットです。未設定なら LeftScale 配下を探します。")]
         private XRSocketInteractor leftFixedSocket;
 
-        [SerializeField, Tooltip("右辺の固定ダンベルを入れるソケットです。")]
+        [SerializeField, Tooltip("右辺の固定分銅を入れる最初のソケットです。未設定なら RightScale 配下を探します。")]
         private XRSocketInteractor rightFixedSocket;
 
         [SerializeField, Tooltip("問題式を表示するカードです。")]
@@ -35,13 +34,13 @@ namespace VrMath.Lesson
         [SerializeField, Tooltip("天びんの傾きを管理するコントローラーです。")]
         private ScaleController scaleController;
 
-        [SerializeField, Tooltip("重さ 1 から順に、ラック上の元ダンベルを登録します。未設定なら Dumbbell1, Dumbbell2... を探します。")]
-        private XRGrabInteractable[] dumbbellSourcesByWeight = new XRGrabInteractable[10];
+        [SerializeField, Tooltip("複製元にする重さ1の小さい分銅です。未設定なら StandardWeight_01 などを探します。")]
+        private XRGrabInteractable unitWeightSource;
 
         [SerializeField, Min(0.01f), Tooltip("このチュートリアル中に、何kg差で最大傾きにするか。")]
         private float tutorialMaxWeightDifference = 3f;
 
-        private GameObject spawnedFixedDumbbell;
+        private readonly List<GameObject> spawnedFixedWeights = new();
         private readonly List<XRSocketInteractor> unknownSideSockets = new();
         private readonly List<int> placedWeights = new();
         private string lastPlacedExpression = "?";
@@ -55,14 +54,14 @@ namespace VrMath.Lesson
         }
 
         /// <summary>
-        /// 現在の設定値で、式表示と固定側ダンベルのソケット装填を行います。
+        /// 現在の設定値で、式表示と固定側分銅のソケット装填を行います。
         /// </summary>
         public void SetupProblem()
         {
             currentProblem = new DumbbellBalanceTutorialProblem(fixedSide, fixedWeight);
             RefreshUnknownSideSockets(currentProblem.UnknownSide);
             ShowProblem(currentProblem);
-            StartCoroutine(SpawnFixedDumbbell(currentProblem));
+            StartCoroutine(SpawnFixedWeights(currentProblem));
         }
 
         private void Update()
@@ -81,7 +80,7 @@ namespace VrMath.Lesson
                 {
                     showingSuccess = true;
                     lastPlacedExpression = placedExpression;
-                    lessonCardDisplay.ShowDumbbellTutorialCorrect(currentProblem.FixedSide, currentProblem.FixedWeight);
+                    lessonCardDisplay.ShowDumbbellTutorialCorrect(currentProblem.FixedSide, currentProblem.FixedWeight, placedExpression);
                     RefreshScaleImmediately();
                 }
 
@@ -92,7 +91,7 @@ namespace VrMath.Lesson
             {
                 showingSuccess = false;
                 lastPlacedExpression = placedExpression;
-                lessonCardDisplay.ShowDumbbellTutorialProgress(currentProblem.FixedSide, currentProblem.FixedWeight, placedExpression);
+                lessonCardDisplay.ShowDumbbellTutorialProgress(currentProblem.FixedSide, currentProblem.FixedWeight, placedExpression, lastPlacedTotal);
                 RefreshScaleImmediately();
             }
         }
@@ -116,64 +115,118 @@ namespace VrMath.Lesson
             showingSuccess = false;
         }
 
-        private IEnumerator SpawnFixedDumbbell(DumbbellBalanceTutorialProblem problem)
+        private IEnumerator SpawnFixedWeights(DumbbellBalanceTutorialProblem problem)
         {
-            var targetSocket = ResolveSocket(problem.FixedSide);
-            var source = ResolveDumbbellSource(problem.FixedWeight);
+            var targetSockets = ResolveSockets(problem.FixedSide);
+            var source = ResolveUnitWeightSource();
 
-            if (targetSocket == null || source == null)
+            if (targetSockets.Count == 0 || source == null)
             {
                 yield break;
             }
 
-            if (spawnedFixedDumbbell != null)
+            foreach (var fixedWeightObject in spawnedFixedWeights)
             {
-                Destroy(spawnedFixedDumbbell);
+                if (fixedWeightObject != null)
+                {
+                    Destroy(fixedWeightObject);
+                }
             }
 
-            spawnedFixedDumbbell = Instantiate(source.gameObject, targetSocket.transform);
-            spawnedFixedDumbbell.name = $"TutorialFixedDumbbell{problem.FixedWeight}";
-            spawnedFixedDumbbell.transform.localPosition = Vector3.zero;
-            spawnedFixedDumbbell.transform.localRotation = Quaternion.identity;
-            spawnedFixedDumbbell.transform.localScale = Vector3.one;
+            spawnedFixedWeights.Clear();
 
-            if (spawnedFixedDumbbell.TryGetComponent(out TMP_Text _))
+            var spawnCount = Mathf.Min(problem.FixedWeight, targetSockets.Count);
+            if (spawnCount < problem.FixedWeight)
             {
-                Debug.LogWarning("固定ダンベルに TextMeshPro が直接付いています。想定外の元オブジェクトを複製していないか確認してください。", this);
+                Debug.LogWarning($"固定側ソケットが {targetSockets.Count} 個しかないため、分銅 {problem.FixedWeight} 個のうち {spawnCount} 個だけ置きます。", this);
             }
 
-            if (spawnedFixedDumbbell.TryGetComponent(out WeightedDumbbell weightedDumbbell))
+            for (var i = 0; i < spawnCount; i++)
             {
-                weightedDumbbell.enabled = true;
-                weightedDumbbell.Weight = problem.FixedWeight;
-            }
+                var targetSocket = targetSockets[i];
+                var spawnedWeight = Instantiate(source.gameObject);
+                spawnedWeight.name = $"TutorialFixedWeight_{i + 1:00}";
+                spawnedWeight.transform.SetParent(targetSocket.transform, false);
+                spawnedWeight.transform.localPosition = Vector3.zero;
+                MatchSourceScale(spawnedWeight.transform, source.transform);
 
-            if (spawnedFixedDumbbell.TryGetComponent(out Rigidbody targetRigidbody))
-            {
-                targetRigidbody.useGravity = false;
-                targetRigidbody.isKinematic = true;
-            }
+                if (spawnedWeight.TryGetComponent(out WeightedDumbbell weightedDumbbell))
+                {
+                    weightedDumbbell.enabled = true;
+                    weightedDumbbell.Weight.Value = 1f;
+                }
 
-            if (spawnedFixedDumbbell.TryGetComponent(out XRGrabInteractable grabInteractable))
-            {
-                grabInteractable.enabled = true;
-            }
+                if (spawnedWeight.TryGetComponent(out Rigidbody targetRigidbody))
+                {
+                    targetRigidbody.mass = 1f;
+                    targetRigidbody.useGravity = false;
+                    targetRigidbody.isKinematic = true;
+                }
 
-            if (!spawnedFixedDumbbell.TryGetComponent(out SocketInitialSelection socketInitialSelection))
-            {
-                socketInitialSelection = spawnedFixedDumbbell.AddComponent<SocketInitialSelection>();
-            }
+                if (spawnedWeight.TryGetComponent(out XRGrabInteractable grabInteractable))
+                {
+                    grabInteractable.enabled = true;
+                }
 
-            socketInitialSelection.enabled = true;
+                if (!spawnedWeight.TryGetComponent(out SocketInitialSelection socketInitialSelection))
+                {
+                    socketInitialSelection = spawnedWeight.AddComponent<SocketInitialSelection>();
+                }
+
+                socketInitialSelection.enabled = true;
+                spawnedFixedWeights.Add(spawnedWeight);
+            }
 
             yield return null;
 
-            if (!targetSocket.hasSelection && spawnedFixedDumbbell.TryGetComponent(out XRGrabInteractable fixedInteractable))
+            for (var i = 0; i < spawnedFixedWeights.Count; i++)
             {
-                targetSocket.StartManualInteraction((IXRSelectInteractable)fixedInteractable);
+                var targetSocket = targetSockets[i];
+                var spawnedWeight = spawnedFixedWeights[i];
+                if (!targetSocket.hasSelection && spawnedWeight.TryGetComponent(out XRGrabInteractable fixedInteractable))
+                {
+                    targetSocket.StartManualInteraction((IXRSelectInteractable)fixedInteractable);
+                    MatchSourceScale(spawnedWeight.transform, source.transform);
+                }
+            }
+
+            yield return null;
+
+            foreach (var fixedWeightObject in spawnedFixedWeights)
+            {
+                if (fixedWeightObject != null)
+                {
+                    MatchSourceScale(fixedWeightObject.transform, source.transform);
+                }
             }
 
             RefreshScaleImmediately();
+        }
+
+        private static void MatchSourceScale(Transform target, Transform source)
+        {
+            SetWorldScale(target, source.lossyScale);
+        }
+
+        private static void SetWorldScale(Transform target, Vector3 worldScale)
+        {
+            var parent = target.parent;
+            if (parent == null)
+            {
+                target.localScale = worldScale;
+                return;
+            }
+
+            var parentScale = parent.lossyScale;
+            target.localScale = new Vector3(
+                SafeDivide(worldScale.x, parentScale.x),
+                SafeDivide(worldScale.y, parentScale.y),
+                SafeDivide(worldScale.z, parentScale.z));
+        }
+
+        private static float SafeDivide(float value, float divisor)
+        {
+            return Mathf.Abs(divisor) > Mathf.Epsilon ? value / divisor : value;
         }
 
         private void RefreshScaleImmediately()
@@ -193,23 +246,35 @@ namespace VrMath.Lesson
             scaleController.RefreshBalance(true);
         }
 
-        private XRSocketInteractor ResolveSocket(BalanceSide side)
+        private List<XRSocketInteractor> ResolveSockets(BalanceSide side)
         {
+            var sockets = new List<XRSocketInteractor>();
             var socket = side == BalanceSide.Left ? leftFixedSocket : rightFixedSocket;
             if (socket != null)
             {
-                return socket;
+                sockets.Add(socket);
             }
 
-            var socketName = side == BalanceSide.Left ? "LeftScaleSocket01" : "RightScaleSocket01";
-            var socketObject = GameObject.Find(socketName);
-            if (socketObject != null && socketObject.TryGetComponent(out XRSocketInteractor foundSocket))
+            var scaleName = side == BalanceSide.Left ? "LeftScale" : "RightScale";
+            var scaleObject = GameObject.Find(scaleName);
+            if (scaleObject != null)
             {
-                return foundSocket;
+                foreach (var foundSocket in scaleObject.GetComponentsInChildren<XRSocketInteractor>(true))
+                {
+                    if (!sockets.Contains(foundSocket))
+                    {
+                        sockets.Add(foundSocket);
+                    }
+                }
             }
 
-            Debug.LogError($"{socketName} が見つかりません。", this);
-            return null;
+            sockets.Sort((left, right) => string.CompareOrdinal(left.name, right.name));
+            if (sockets.Count == 0)
+            {
+                Debug.LogError($"{scaleName} のソケットが見つかりません。", this);
+            }
+
+            return sockets;
         }
 
         private void RefreshUnknownSideSockets(BalanceSide unknownSide)
@@ -272,31 +337,29 @@ namespace VrMath.Lesson
             var weightedDumbbell = selectedTransform.GetComponentInParent<WeightedDumbbell>();
             if (weightedDumbbell != null)
             {
-                return Mathf.RoundToInt(weightedDumbbell.Weight);
+                return Mathf.RoundToInt(weightedDumbbell.Weight.Value);
             }
 
             var selectedRigidbody = selectedTransform.GetComponentInParent<Rigidbody>();
             return selectedRigidbody != null ? Mathf.RoundToInt(selectedRigidbody.mass) : 0;
         }
 
-        private XRGrabInteractable ResolveDumbbellSource(int weight)
+        private XRGrabInteractable ResolveUnitWeightSource()
         {
-            var index = weight - 1;
-            if (index >= 0 && index < dumbbellSourcesByWeight.Length && dumbbellSourcesByWeight[index] != null)
+            if (unitWeightSource != null)
             {
-                var registeredSource = dumbbellSourcesByWeight[index];
-                var registeredWeight = registeredSource.GetComponent<WeightedDumbbell>();
-                if (registeredWeight != null && Mathf.RoundToInt(registeredWeight.Weight) == weight)
+                var registeredWeight = unitWeightSource.GetComponent<WeightedDumbbell>();
+                if (registeredWeight != null && Mathf.RoundToInt(registeredWeight.Weight.Value) == 1)
                 {
-                    return registeredSource;
+                    return unitWeightSource;
                 }
 
-                Debug.LogWarning($"登録済みダンベルの重さが {weight} と一致しません。シーン内から重さで探し直します。", this);
+                Debug.LogWarning("登録済み分銅の重さが 1 と一致しません。シーン内から探し直します。", this);
             }
 
             foreach (var weightedDumbbell in Resources.FindObjectsOfTypeAll<WeightedDumbbell>())
             {
-                if (weightedDumbbell == null || weightedDumbbell.gameObject == spawnedFixedDumbbell)
+                if (weightedDumbbell == null || spawnedFixedWeights.Contains(weightedDumbbell.gameObject))
                 {
                     continue;
                 }
@@ -306,18 +369,18 @@ namespace VrMath.Lesson
                     continue;
                 }
 
-                if (Mathf.RoundToInt(weightedDumbbell.Weight) != weight)
+                if (Mathf.RoundToInt(weightedDumbbell.Weight.Value) != 1)
                 {
                     continue;
                 }
 
-                if (weightedDumbbell.TryGetComponent(out XRGrabInteractable source))
+                if (weightedDumbbell.name.StartsWith("StandardWeight_") && weightedDumbbell.TryGetComponent(out XRGrabInteractable source))
                 {
                     return source;
                 }
             }
 
-            Debug.LogError($"重さ {weight} のダンベルが見つかりません。", this);
+            Debug.LogError("複製元にできる重さ1の小さい分銅が見つかりません。", this);
             return null;
         }
     }

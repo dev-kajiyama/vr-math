@@ -52,13 +52,31 @@ namespace VrMath.Core
         }
 
         /// <summary>
+        /// 均衡できたあとの式を、学習者が置いた分銅の内訳つきで作ります。
+        /// </summary>
+        public string BuildSolvedEquation(string unknownExpression)
+        {
+            var expression = string.IsNullOrWhiteSpace(unknownExpression) ? FixedWeight.ToString() : unknownExpression;
+            return FixedSide == BalanceSide.Left ? $"{FixedWeight} = {expression}" : $"{expression} = {FixedWeight}";
+        }
+
+        /// <summary>
         /// 学習者が置いたダンベルの式を未知側へ反映した表示を作ります。
         /// まだ置かれていない場合は ? のまま残します。
         /// </summary>
         public string BuildProgressEquation(string unknownExpression)
         {
+            return BuildProgressEquation(unknownExpression, -1);
+        }
+
+        /// <summary>
+        /// 学習者が置いたダンベルの式を未知側へ反映し、未均衡なら不等号で表示します。
+        /// </summary>
+        public string BuildProgressEquation(string unknownExpression, int unknownWeight)
+        {
             var expression = string.IsNullOrWhiteSpace(unknownExpression) ? "?" : unknownExpression;
-            return FixedSide == BalanceSide.Left ? $"{FixedWeight} = {expression}" : $"{expression} = {FixedWeight}";
+            var comparison = unknownWeight < 0 ? "=" : GetComparisonSymbol(FixedSide, FixedWeight, unknownWeight);
+            return FixedSide == BalanceSide.Left ? $"{FixedWeight} {comparison} {expression}" : $"{expression} {comparison} {FixedWeight}";
         }
 
         /// <summary>
@@ -67,6 +85,24 @@ namespace VrMath.Core
         public bool IsBalanced(int unknownWeight)
         {
             return unknownWeight == FixedWeight;
+        }
+
+        private static string GetComparisonSymbol(BalanceSide fixedSide, int fixedWeight, int unknownWeight)
+        {
+            var leftWeight = fixedSide == BalanceSide.Left ? fixedWeight : unknownWeight;
+            var rightWeight = fixedSide == BalanceSide.Left ? unknownWeight : fixedWeight;
+
+            if (leftWeight > rightWeight)
+            {
+                return ">";
+            }
+
+            if (leftWeight < rightWeight)
+            {
+                return "<";
+            }
+
+            return "=";
         }
     }
 }

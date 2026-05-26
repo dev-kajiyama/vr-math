@@ -129,7 +129,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 19178ea83c8e03040a2823458ec3fe89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeightedDumbbell
-  weight: 1
+  weight:
+    value: 1
   weightMaterial: {fileID: 0}
   metalColor: {r: 0.56, g: 0.55, b: 0.52, a: 1}
   metallic: 1
