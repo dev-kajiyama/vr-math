@@ -501,7 +501,7 @@ namespace VrMath.Lesson
         /// </summary>
         private void StartVariableExpressionStage()
         {
-            // Next から呼ばれる。ここでは式だけ用意し、配置は Set ボタンに任せる。
+            // Next から呼ばれる。新しい式を表示したら、前問の配置が残らないよう同じ式で即配置する。
             lessonStage = LessonStage.VariableExpression;
             variableExpressionObjectsPlaced = false;
             showConfiguredVariableEquation = true;
@@ -510,6 +510,7 @@ namespace VrMath.Lesson
             lastShownStage = LessonStage.BalanceOnly;
 
             ShowConfiguredVariableEquation();
+            SetCurrentEquationOnBoard();
         }
 
         /// <summary>
