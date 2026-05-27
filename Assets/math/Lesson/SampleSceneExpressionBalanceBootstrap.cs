@@ -170,6 +170,7 @@ namespace VrMath.Lesson
         private int variableProblemIndex;
         private int lastAdvanceFrame = -1;
         private bool showConfiguredVariableEquation;
+        private bool lessonReset;
         private EquationLessonCardDisplay subscribedCardDisplay;
         private readonly HashSet<XRSocketInteractor> socketsWithDebugLogging = new();
 
@@ -189,6 +190,11 @@ namespace VrMath.Lesson
         {
             // Unity シーン上の手作業変更にも追従できるよう、参照解決と配置試行を毎フレーム軽く確認する。
             ResolveSceneReferences();
+
+            if (lessonReset)
+            {
+                return;
+            }
 
             var unknownTotal = ReadUnknownSide(out var expression);
             UpdateCard(expression, unknownTotal);
@@ -228,16 +234,19 @@ namespace VrMath.Lesson
             if (cardDisplay != null && subscribedCardDisplay != cardDisplay)
             {
                 cardDisplay.SetProcessButtonActions(
-                    ClearEquationBoard,
-                    GenerateEquationFromBoard,
-                    SetCurrentEquationOnBoard,
+                    ResetExpressionBalanceLesson,
+                    GenerateProblemTextOnly,
+                    PlaceCurrentProblemObjectsOnBoard,
                     AdvanceLessonAfterSuccess);
                 subscribedCardDisplay = cardDisplay;
             }
 
             AutoAssignExpressionFootprints();
             PrepareWeightInteractablesForSockets();
-            TryPlaceInitialFixedWeights();
+            if (!lessonReset)
+            {
+                TryPlaceInitialFixedWeights();
+            }
         }
 
         /// <summary>
@@ -486,11 +495,105 @@ namespace VrMath.Lesson
         private BalanceSide UnknownSide => fixedSide == BalanceSide.Left ? BalanceSide.Right : BalanceSide.Left;
 
         /// <summary>
+        /// 外部の Start ボタンから、x = 3 の問題を明示的に開始します。
+        /// </summary>
+        public void BeginXEqualsThreeProblem()
+        {
+            BeginVariableEquationProblem(3, 0);
+        }
+
+        /// <summary>
+        /// 外部ボタンや別 controller から、x + offset = answer + offset の問題を開始します。
+        /// offset が 0 の場合は x = answer として表示します。
+        /// </summary>
+        public void BeginVariableEquationProblem(int answer, int offset)
+        {
+            lessonReset = false;
+            answerValue = Mathf.Max(1, answer);
+            equationOffset = Mathf.Max(0, offset);
+            variableProblemIndex = Mathf.Max(1, variableProblemIndex);
+            lessonStage = LessonStage.VariableExpression;
+            variableExpressionObjectsPlaced = false;
+            initialFixedWeightsPlaced = true;
+            showConfiguredVariableEquation = true;
+            lastTotal = -1;
+            lastExpression = "";
+            lastShownStage = LessonStage.BalanceOnly;
+
+            ResolveSceneReferences();
+            StartVariableExpressionStage();
+
+            // x = 3 は初期配置だけで解が読めるため、開始直後は成功表示へ切り替えず問題式を見せる。
+            showConfiguredVariableEquation = true;
+            lastExpression = "";
+            ShowConfiguredVariableEquation();
+        }
+
+        /// <summary>
+        /// Clear ボタン用。問題表示、平均台上の配置、x 箱、傾きをすべて初期化します。
+        /// </summary>
+        public void ResetExpressionBalanceLesson()
+        {
+            ResolveSceneReferences();
+
+            var variableBox = ResolveVariableBox();
+            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude)
+                .Where(weight => weight != null && (variableBox == null || !IsSameHierarchy(weight.transform, variableBox.transform)))
+                .ToList();
+
+            ResetBoardForEquationPlacement(allWeights, variableBox);
+            ResetBoardTiltImmediate();
+
+            lessonStage = LessonStage.BalanceOnly;
+            lessonReset = true;
+            initialFixedWeightsPlaced = true;
+            variableExpressionObjectsPlaced = false;
+            showConfiguredVariableEquation = false;
+            variableProblemIndex = 0;
+            lastTotal = -1;
+            lastExpression = "";
+            lastShownStage = LessonStage.BalanceOnly;
+
+            if (cardDisplay != null)
+            {
+                cardDisplay.Show("", "", "", "");
+            }
+
+            Debug.Log("[ExpressionBalance:Clear] Reset problem, board placements, variable box, weights, and board tilt.");
+        }
+
+        /// <summary>
+        /// Gen ボタン用。新しい問題文だけを生成し、平均台上の配置は変更しません。
+        /// </summary>
+        public void GenerateProblemTextOnly()
+        {
+            lessonReset = false;
+            ResolveSceneReferences();
+
+            lessonStage = LessonStage.VariableExpression;
+            GenerateRandomVariableEquation();
+            variableProblemIndex = Mathf.Max(1, variableProblemIndex + 1);
+            variableExpressionObjectsPlaced = false;
+            showConfiguredVariableEquation = true;
+            lastTotal = -1;
+            lastExpression = "";
+            lastShownStage = LessonStage.BalanceOnly;
+
+            ShowConfiguredVariableEquation();
+            Debug.Log($"[ExpressionBalance:Gen] Generated problem text only: {BuildConfiguredVariableEquationText()}");
+        }
+
+        /// <summary>
         /// x 問題の基本式文字列を作成します。
         /// </summary>
         private string BuildEquation(string unknownExpression)
         {
             var expression = string.IsNullOrWhiteSpace(unknownExpression) ? "?" : unknownExpression;
+            if (equationOffset <= 0)
+            {
+                return $"{expression} {GetComparisonSymbol(expression)} {answerValue}";
+            }
+
             var rightSide = answerValue + equationOffset;
             return $"{expression} + {equationOffset} {GetComparisonSymbol(expression)} {rightSide}";
         }
@@ -652,7 +755,7 @@ namespace VrMath.Lesson
                 return;
             }
 
-            var problem = $"x + {equationOffset} = {answerValue + equationOffset}";
+            var problem = BuildConfiguredVariableEquationText();
             if (lastExpression == problem && lessonStage == lastShownStage)
             {
                 return;
@@ -662,6 +765,13 @@ namespace VrMath.Lesson
             lastTotal = -1;
             lastShownStage = lessonStage;
             cardDisplay.Show("", problem, "", "");
+        }
+
+        private string BuildConfiguredVariableEquationText()
+        {
+            return equationOffset <= 0
+                ? $"x = {answerValue}"
+                : $"x + {equationOffset} = {answerValue + equationOffset}";
         }
 
         /// <summary>
@@ -701,15 +811,23 @@ namespace VrMath.Lesson
         }
 
         /// <summary>
+        /// Set ボタン用。カードに表示されている問題文を読み、平均台へ x と重りを配置します。
+        /// </summary>
+        public void PlaceCurrentProblemObjectsOnBoard()
+        {
+            SetCurrentEquationOnBoard();
+        }
+
+        /// <summary>
         /// Set ボタン用。現在の式設定に合わせて、平均台へ x と重りを配置します。
         /// </summary>
         private void SetCurrentEquationOnBoard()
         {
-            Debug.Log($"{SetDebugPrefix} Set pressed. stage={lessonStage}, answer={answerValue}, offset={equationOffset}, equation=x + {equationOffset} = {answerValue + equationOffset}");
+            Debug.Log($"{SetDebugPrefix} Set pressed. stage={lessonStage}, answer={answerValue}, offset={equationOffset}, equation={BuildConfiguredVariableEquationText()}");
 
             if (TryApplyDisplayedVariableEquation())
             {
-                Debug.Log($"{SetDebugPrefix} Applied displayed equation before placement. answer={answerValue}, offset={equationOffset}, equation=x + {equationOffset} = {answerValue + equationOffset}");
+                Debug.Log($"{SetDebugPrefix} Applied displayed equation before placement. answer={answerValue}, offset={equationOffset}, equation={BuildConfiguredVariableEquationText()}");
             }
             else if (lessonStage == LessonStage.BalanceOnly)
             {
@@ -743,22 +861,33 @@ namespace VrMath.Lesson
 
             var plainText = Regex.Replace(rawText, "<.*?>", "");
             var match = Regex.Match(plainText, @"x\s*\+\s*(\d+)\s*=\s*(\d+)", RegexOptions.IgnoreCase);
-            if (!match.Success)
+            if (match.Success)
+            {
+                var parsedOffset = int.Parse(match.Groups[1].Value);
+                var parsedRightSide = int.Parse(match.Groups[2].Value);
+                var parsedAnswer = parsedRightSide - parsedOffset;
+                if (parsedOffset < 0 || parsedAnswer <= 0)
+                {
+                    Debug.LogWarning($"{SetDebugPrefix} Displayed equation was ignored because it is invalid: '{plainText}'");
+                    return false;
+                }
+
+                equationOffset = parsedOffset;
+                answerValue = parsedAnswer;
+                lessonStage = LessonStage.VariableExpression;
+                variableProblemIndex = Mathf.Max(1, variableProblemIndex);
+                showConfiguredVariableEquation = false;
+                return true;
+            }
+
+            var directMatch = Regex.Match(plainText, @"\bx\s*=\s*(\d+)\b", RegexOptions.IgnoreCase);
+            if (!directMatch.Success)
             {
                 return false;
             }
 
-            var parsedOffset = int.Parse(match.Groups[1].Value);
-            var parsedRightSide = int.Parse(match.Groups[2].Value);
-            var parsedAnswer = parsedRightSide - parsedOffset;
-            if (parsedOffset < 0 || parsedAnswer <= 0)
-            {
-                Debug.LogWarning($"{SetDebugPrefix} Displayed equation was ignored because it is invalid: '{plainText}'");
-                return false;
-            }
-
-            equationOffset = parsedOffset;
-            answerValue = parsedAnswer;
+            answerValue = Mathf.Max(1, int.Parse(directMatch.Groups[1].Value));
+            equationOffset = 0;
             lessonStage = LessonStage.VariableExpression;
             variableProblemIndex = Mathf.Max(1, variableProblemIndex);
             showConfiguredVariableEquation = false;
