@@ -296,6 +296,8 @@ namespace VrMath.Lesson
 
         private static void DisableNonMainCardRaycasts(EquationLessonCardDisplay mainDisplay)
         {
+            // メインカード以外が同じ Canvas 上に残っていると、XR/UI のクリックを奪うことがある。
+            // 古いカードや成功表示専用カードは、見えていても入力対象から外す。
             foreach (var display in FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (display == null || display == mainDisplay)
@@ -331,11 +333,13 @@ namespace VrMath.Lesson
 
         private static bool IsSuccessOnlyCardDisplay(EquationLessonCardDisplay display)
         {
+            // SuccessCard 配下の display は「成功後の見た目」用なので、問題操作カードとして扱わない。
             return display != null && HasTransformNamed(display.transform, "SuccessCard");
         }
 
         private static bool HasTransformNamed(Transform transform, string objectName)
         {
+            // 子側のコンポーネントから呼ばれても、親階層に目的の名前があるか確認する。
             while (transform != null)
             {
                 if (transform.name == objectName)
@@ -449,6 +453,7 @@ namespace VrMath.Lesson
 
         private void ResetBoardTiltImmediate()
         {
+            // Clear / Set の直後は補間を待たず、初期角度へ戻して見た目をリセットする。
             tiltUpdater.Reset(boardVisual, boardBaseRotation);
         }
 
@@ -729,6 +734,7 @@ namespace VrMath.Lesson
 
         private string BuildConfiguredVariableEquationText()
         {
+            // 現在保持している answer / offset を、カード用の文字式へ変換する。
             return problemGenerator.Format(new ExpressionBalanceProblem(answerValue, equationOffset));
         }
 
@@ -806,6 +812,8 @@ namespace VrMath.Lesson
 
         private bool TryApplyDisplayedVariableEquation()
         {
+            // Set ボタンは「今カードに出ている式」を優先する。
+            // Gen で作った式を、内部値へ同期してから配置するための読み取り処理。
             if (cardDisplay == null)
             {
                 return false;
@@ -818,12 +826,16 @@ namespace VrMath.Lesson
             }
 
             var plainText = Regex.Replace(rawText, "<.*?>", "");
+
+            // x + a = b 形式を読む。TMP のタグは上で消している。
             var match = Regex.Match(plainText, @"x\s*\+\s*(\d+)\s*=\s*(\d+)", RegexOptions.IgnoreCase);
             if (match.Success)
             {
                 var parsedOffset = int.Parse(match.Groups[1].Value);
                 var parsedRightSide = int.Parse(match.Groups[2].Value);
                 var parsedAnswer = parsedRightSide - parsedOffset;
+
+                // x の答えが 0 以下になる式は、このレッスンの問題として扱わない。
                 if (parsedOffset < 0 || parsedAnswer <= 0)
                 {
                     Debug.LogWarning($"{SetDebugPrefix} Displayed equation was ignored because it is invalid: '{plainText}'");
@@ -838,6 +850,7 @@ namespace VrMath.Lesson
                 return true;
             }
 
+            // offset がない x = n 形式も Start ボタンなどから来るため読む。
             var directMatch = Regex.Match(plainText, @"\bx\s*=\s*(\d+)\b", RegexOptions.IgnoreCase);
             if (!directMatch.Success)
             {
@@ -1085,6 +1098,7 @@ namespace VrMath.Lesson
 
         private void LogSocketEntered(XRSocketInteractor socket, IXRSelectInteractable interactable)
         {
+            // 自動配置と手動配置の両方で、どのソケットに何が入ったか確認しやすくするログ。
             var hasIndex = TryGetSocketVisualIndex(socket, out var side, out var index);
             var sideText = hasIndex ? side.ToString() : "Unknown";
             var indexText = hasIndex ? index.ToString() : "unknown";
@@ -1095,6 +1109,7 @@ namespace VrMath.Lesson
 
         private bool TryGetSocketVisualIndex(XRSocketInteractor socket, out BalanceSide side, out int index)
         {
+            // まず Bootstrap が保持している左右リスト内の位置を優先して、見た目上の番号を決める。
             side = BalanceSide.Left;
             index = -1;
 
@@ -1198,6 +1213,8 @@ namespace VrMath.Lesson
             Debug.Log($"{SetDebugPrefix} Right expression socket candidates: {DescribeSockets(rightExpressionSockets)}");
 
             var problem = new ExpressionBalanceProblem(answerValue, equationOffset);
+
+            // ここでは「どのソケットに何を置くか」を決めるだけ。実配置は SocketPlacer に任せる。
             if (!socketLayoutPlanner.TryPlan(problem, leftExpressionSockets, rightExpressionSockets, out var plan, out var planError))
             {
                 Debug.LogWarning($"{SetDebugPrefix} Abort: {planError}");
@@ -1226,12 +1243,14 @@ namespace VrMath.Lesson
                 .ToList();
             Debug.Log($"{SetDebugPrefix} Selected weights for placement: {string.Join(", ", weights.Select(DescribeWeight))}");
 
+            // Planner の結果を使って、x 箱と重りを実際の XRSocketInteractor へ選択させる。
             if (!socketPlacer.TryPlace(plan, variableBox, weights, out var usedWeights, out var placeError))
             {
                 Debug.LogWarning($"{SetDebugPrefix} Abort: {placeError}");
                 return;
             }
 
+            // 今回の式に不要な重りは、式の読み取りに混ざらないよう板の外へ出す。
             boardClearer.ClearUnusedWeights(allWeights, usedWeights, boardRoot, boardHalfWidth);
             variableExpressionObjectsPlaced = true;
             Debug.Log($"{SetDebugPrefix} Placement complete. leftSelections={DescribeSocketSelections(leftSockets)}, rightSelections={DescribeSocketSelections(rightSockets)}");
@@ -1264,11 +1283,13 @@ namespace VrMath.Lesson
 
         private static string DescribeSockets(IEnumerable<XRSocketInteractor> sockets)
         {
+            // デバッグログ用。null の場合もログ上で分かるよう文字列化する。
             return sockets == null ? "null" : string.Join(" | ", sockets.Select(DescribeSocket));
         }
 
         private static string DescribeSocket(XRSocketInteractor socket)
         {
+            // デバッグログ用。パス、slot 情報、実位置、attach 位置をまとめて出す。
             if (socket == null)
             {
                 return "null";
@@ -1282,6 +1303,7 @@ namespace VrMath.Lesson
 
         private static string DescribeSocketSelection(XRSocketInteractor socket)
         {
+            // デバッグログ用。ソケットが空か、何を選択中かを文字列化する。
             if (socket == null)
             {
                 return "socket=null";
@@ -1297,6 +1319,7 @@ namespace VrMath.Lesson
 
         private static string DescribeSocketInteractable(IXRSelectInteractable interactable)
         {
+            // デバッグログ用。選択物を weight / x / other に分類して見やすくする。
             if (interactable?.transform == null)
             {
                 return "null";
@@ -1319,6 +1342,7 @@ namespace VrMath.Lesson
 
         private static string DescribeSocketSelections(IEnumerable<XRSocketInteractor> sockets)
         {
+            // デバッグログ用。左右リスト内の各ソケットと、その選択物をまとめて出す。
             if (sockets == null)
             {
                 return "null";
@@ -1329,6 +1353,7 @@ namespace VrMath.Lesson
 
         private static string DescribeWeight(WeightedDumbbell weight)
         {
+            // デバッグログ用。重りの階層パス、値、ワールド位置を出す。
             if (weight == null)
             {
                 return "null";
@@ -1339,6 +1364,7 @@ namespace VrMath.Lesson
 
         private static string GetTransformPath(Transform transform)
         {
+            // デバッグログ用。Hierarchy 上で同名オブジェクトがあっても追いやすいようフルパス化する。
             if (transform == null)
             {
                 return "null";
