@@ -101,7 +101,7 @@ namespace VrMath.Lesson
             }
 
             return FindAnyObjectByType<ExpressionBalanceMainCard>(FindObjectsInactive.Include) != null
-                   || FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include)
+                   || FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                        .Any(display => display != null && display.name == "CoachingCardRoot");
         }
 
@@ -156,9 +156,12 @@ namespace VrMath.Lesson
         private EquationLessonCardDisplay cardDisplay;
         private readonly List<XRSocketInteractor> leftSockets = new();
         private readonly List<XRSocketInteractor> rightSockets = new();
-        private readonly List<int> unknownWeights = new();
-        private readonly List<int> variableLeftWeights = new();
-        private readonly List<int> variableRightWeights = new();
+        private readonly ExpressionBalanceProblemGenerator problemGenerator = new();
+        private readonly ExpressionBalanceSocketLayoutPlanner socketLayoutPlanner = new();
+        private readonly ExpressionBalanceSocketPlacer socketPlacer = new();
+        private readonly ExpressionBalanceBoardReader boardReader = new();
+        private readonly ExpressionBalanceBoardClearer boardClearer = new();
+        private readonly ExpressionBalanceTiltUpdater tiltUpdater = new();
         private LessonStage lessonStage = LessonStage.BalanceOnly;
         private string lastExpression = "";
         private int lastTotal = -1;
@@ -254,7 +257,7 @@ namespace VrMath.Lesson
         /// </summary>
         private static ExpressionBalanceMainCard FindMainEquationCardMarker()
         {
-            var markers = FindObjectsByType<ExpressionBalanceMainCard>(FindObjectsInactive.Include)
+            var markers = FindObjectsByType<ExpressionBalanceMainCard>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                 .Where(marker => marker != null && marker.Display != null)
                 .ToList();
 
@@ -272,7 +275,7 @@ namespace VrMath.Lesson
         /// </summary>
         private static EquationLessonCardDisplay FindMainEquationCardDisplayFallback()
         {
-            var displays = FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include)
+            var displays = FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                 .Where(display => display != null && !IsSuccessOnlyCardDisplay(display))
                 .ToList();
 
@@ -293,7 +296,7 @@ namespace VrMath.Lesson
 
         private static void DisableNonMainCardRaycasts(EquationLessonCardDisplay mainDisplay)
         {
-            foreach (var display in FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include))
+            foreach (var display in FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (display == null || display == mainDisplay)
                 {
@@ -364,48 +367,9 @@ namespace VrMath.Lesson
         /// </summary>
         private int ReadUnknownSide(out string expression)
         {
-            // BalanceOnly ステージでは、固定辺の反対側に置かれた重りだけを式として読む。
-            unknownWeights.Clear();
-
-            if (leftSockets.Count == 0 && rightSockets.Count == 0)
-            {
-                expression = "?";
-                return 0;
-            }
-
-            var sockets = UnknownSide == BalanceSide.Left ? leftSockets : rightSockets;
-            foreach (var socket in sockets)
-            {
-                if (socket == null || !socket.hasSelection)
-                {
-                    continue;
-                }
-
-                foreach (var interactable in socket.interactablesSelected)
-                {
-                    var weight = interactable.transform.GetComponentInParent<WeightedDumbbell>();
-                    if (weight == null)
-                    {
-                        continue;
-                    }
-
-                    var value = Mathf.RoundToInt(weight.Weight.Value);
-                    if (value > 0)
-                    {
-                        unknownWeights.Add(value);
-                    }
-                }
-            }
-
-            if (unknownWeights.Count == 0)
-            {
-                expression = "?";
-                return 0;
-            }
-
-            unknownWeights.Sort();
-            expression = string.Join(" + ", unknownWeights.Select(value => value.ToString()));
-            return unknownWeights.Sum();
+            var state = boardReader.ReadUnknownSide(UnknownSide, leftSockets, rightSockets);
+            expression = state.Expression;
+            return state.Total;
         }
 
         /// <summary>
@@ -451,7 +415,9 @@ namespace VrMath.Lesson
             if (lessonStage == LessonStage.VariableExpression)
             {
                 // x も answerValue の重さとして数え、左右の実重量差で傾ける。
-                UpdateBoardTilt(ReadSideTotal(BalanceSide.Left), ReadSideTotal(BalanceSide.Right));
+                UpdateBoardTilt(
+                    boardReader.ReadSideTotal(BalanceSide.Left, leftSockets, rightSockets, answerValue),
+                    boardReader.ReadSideTotal(BalanceSide.Right, leftSockets, rightSockets, answerValue));
                 return;
             }
 
@@ -471,25 +437,19 @@ namespace VrMath.Lesson
         /// </summary>
         private void UpdateBoardTilt(float leftWeight, float rightWeight)
         {
-            var normalizedDifference = Mathf.Clamp((leftWeight - rightWeight) / maxWeightDifference, -1f, 1f);
-            var targetTilt = normalizedDifference * maxTiltDegrees;
-            var targetRotation = boardBaseRotation * Quaternion.Euler(0f, 0f, targetTilt);
-
-            boardVisual.localRotation = Quaternion.Slerp(
-                boardVisual.localRotation,
-                targetRotation,
-                1f - Mathf.Exp(-tiltFollowSpeed * Time.deltaTime));
-
+            tiltUpdater.Update(
+                boardVisual,
+                boardBaseRotation,
+                leftWeight,
+                rightWeight,
+                maxWeightDifference,
+                maxTiltDegrees,
+                tiltFollowSpeed);
         }
 
         private void ResetBoardTiltImmediate()
         {
-            if (boardVisual == null)
-            {
-                return;
-            }
-
-            boardVisual.localRotation = boardBaseRotation;
+            tiltUpdater.Reset(boardVisual, boardBaseRotation);
         }
 
         private BalanceSide UnknownSide => fixedSide == BalanceSide.Left ? BalanceSide.Right : BalanceSide.Left;
@@ -537,7 +497,7 @@ namespace VrMath.Lesson
             ResolveSceneReferences();
 
             var variableBox = ResolveVariableBox();
-            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude)
+            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
                 .Where(weight => weight != null && (variableBox == null || !IsSameHierarchy(weight.transform, variableBox.transform)))
                 .ToList();
 
@@ -658,7 +618,7 @@ namespace VrMath.Lesson
 
             // x + 2 = 3 では、プレイヤーが両辺から同じ重りを取ると式表示も変形する。
             // 最終的に「左に x だけ、右に 1 だけ」なら x = 1 として成功扱いにする。
-            var state = ReadVariableEquationState();
+            var state = boardReader.ReadVariableEquationState(leftSockets, rightSockets, answerValue);
             var cardKey = $"{state.Problem}|{state.Operation}|{state.Answer}|{state.IsSolved}";
             if (cardKey == lastExpression && lessonStage == lastShownStage)
             {
@@ -769,9 +729,7 @@ namespace VrMath.Lesson
 
         private string BuildConfiguredVariableEquationText()
         {
-            return equationOffset <= 0
-                ? $"x = {answerValue}"
-                : $"x + {equationOffset} = {answerValue + equationOffset}";
+            return problemGenerator.Format(new ExpressionBalanceProblem(answerValue, equationOffset));
         }
 
         /// <summary>
@@ -780,7 +738,7 @@ namespace VrMath.Lesson
         private void ClearEquationBoard()
         {
             var variableBox = ResolveVariableBox();
-            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude)
+            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
                 .Where(weight => weight != null && (variableBox == null || !IsSameHierarchy(weight.transform, variableBox.transform)))
                 .ToList();
 
@@ -900,48 +858,20 @@ namespace VrMath.Lesson
         private void GenerateRandomVariableEquation()
         {
             // 左は「x と a 個の重り」、右は「答え + a 個の重り」を置くため、
-            // 各辺4ソケット以内、かつ実際にある重り数以内に制限する。
-            var previousAnswer = answerValue;
-            var previousOffset = equationOffset;
-            var maxLeftOffset = Mathf.Max(0, leftSockets.Count - 1);
-            var maxRightTotal = Mathf.Max(1, rightSockets.Count);
-            var availableWeightCount = CountAvailableUnitWeights();
-            var minOffset = Mathf.Max(1, randomMinOffset);
-            var maxOffset = Mathf.Min(randomMaxOffset, maxLeftOffset, maxRightTotal - 1);
-            var minAnswer = Mathf.Max(1, randomMinAnswer);
-            var configuredMaxAnswer = Mathf.Max(minAnswer, randomMaxAnswer);
+            // 各辺のソケット数と実際にある重り数以内に制限する。
+            var problem = problemGenerator.GenerateRandom(
+                randomMinAnswer,
+                randomMaxAnswer,
+                randomMinOffset,
+                randomMaxOffset,
+                leftSockets.Count,
+                rightSockets.Count,
+                CountAvailableUnitWeights(),
+                new ExpressionBalanceProblem(answerValue, equationOffset),
+                new ExpressionBalanceProblem(FixedVariableAnswer, FixedVariableOffset));
 
-            var candidates = new List<(int Answer, int Offset)>();
-            for (var offset = minOffset; offset <= maxOffset; offset++)
-            {
-                var maxAnswerForOffset = Mathf.Min(configuredMaxAnswer, maxRightTotal - offset);
-                for (var answer = minAnswer; answer <= maxAnswerForOffset; answer++)
-                {
-                    var neededWeightCount = answer + offset * 2;
-                    if (neededWeightCount > availableWeightCount)
-                    {
-                        continue;
-                    }
-
-                    candidates.Add((answer, offset));
-                }
-            }
-
-            if (candidates.Count > 1)
-            {
-                candidates.RemoveAll(candidate => candidate.Answer == previousAnswer && candidate.Offset == previousOffset);
-            }
-
-            if (candidates.Count == 0)
-            {
-                answerValue = FixedVariableAnswer;
-                equationOffset = FixedVariableOffset;
-                return;
-            }
-
-            var candidate = candidates[Random.Range(0, candidates.Count)];
-            answerValue = candidate.Answer;
-            equationOffset = candidate.Offset;
+            answerValue = problem.Answer;
+            equationOffset = problem.Offset;
         }
 
         /// <summary>
@@ -950,7 +880,7 @@ namespace VrMath.Lesson
         private static int CountAvailableUnitWeights()
         {
             var variableBox = ResolveVariableBox();
-            return FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude)
+            return FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
                 .Count(weight => weight != null
                                  && (variableBox == null || !IsSameHierarchy(weight.transform, variableBox.transform)));
         }
@@ -960,7 +890,7 @@ namespace VrMath.Lesson
         /// </summary>
         private static Transform FindObjectByNamePart(string namePart)
         {
-            foreach (var transform in FindObjectsByType<Transform>(FindObjectsInactive.Exclude))
+            foreach (var transform in FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (transform.name.Contains(namePart))
                 {
@@ -999,7 +929,7 @@ namespace VrMath.Lesson
         private static void AutoAssignExpressionFootprints()
         {
             // x 箱をソケット対象として扱えるよう、名前から自動で足跡情報を付ける。
-            foreach (var grab in FindObjectsByType<XRGrabInteractable>(FindObjectsInactive.Exclude))
+            foreach (var grab in FindObjectsByType<XRGrabInteractable>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (!LooksLikeVariableBox(grab.name))
                 {
@@ -1216,7 +1146,7 @@ namespace VrMath.Lesson
                 return;
             }
 
-            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude)
+            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
                 .Where(weight => weight != null)
                 .OrderBy(weight => Vector3.Distance(weight.transform.position, boardRoot.position))
                 .ToList();
@@ -1249,10 +1179,7 @@ namespace VrMath.Lesson
         /// </summary>
         private void TryPlaceVariableExpressionObjects()
         {
-            // x + a = b 用配置。
-            // Index は見た目の左から右。左は中心寄りに右詰め、右は中心寄りに左詰めで置く。
-            // x + 2 = 3 なら、左 Index 1 に x、Index 2,3 に重り、右 Index 0,1,2 に重りを置く。
-            if (lessonStage != LessonStage.VariableExpression || variableExpressionObjectsPlaced || boardRoot == null || leftSockets.Count < 4 || rightSockets.Count < 3)
+            if (lessonStage != LessonStage.VariableExpression || variableExpressionObjectsPlaced || boardRoot == null)
             {
                 Debug.LogWarning($"{SetDebugPrefix} Abort before placement. stage={lessonStage}, placed={variableExpressionObjectsPlaced}, boardRoot={(boardRoot != null ? boardRoot.name : "null")}, leftSocketCount={leftSockets.Count}, rightSocketCount={rightSockets.Count}");
                 return;
@@ -1269,56 +1196,24 @@ namespace VrMath.Lesson
             var rightExpressionSockets = GetSocketsLeftToRight(BalanceSide.Right);
             Debug.Log($"{SetDebugPrefix} Left expression socket candidates: {DescribeSockets(leftExpressionSockets)}");
             Debug.Log($"{SetDebugPrefix} Right expression socket candidates: {DescribeSockets(rightExpressionSockets)}");
-            if (leftExpressionSockets.Count < 4 || rightExpressionSockets.Count < 3)
+
+            var problem = new ExpressionBalanceProblem(answerValue, equationOffset);
+            if (!socketLayoutPlanner.TryPlan(problem, leftExpressionSockets, rightExpressionSockets, out var plan, out var planError))
             {
-                Debug.LogWarning($"{SetDebugPrefix} Abort: expression socket count is insufficient. left={leftExpressionSockets.Count}, right={rightExpressionSockets.Count}");
+                Debug.LogWarning($"{SetDebugPrefix} Abort: {planError}");
                 return;
             }
 
-            var leftOffsetWeightCount = equationOffset;
-            var rightWeightCount = answerValue + equationOffset;
-            var leftTermCount = 1 + leftOffsetWeightCount;
-            if (leftOffsetWeightCount < 0 || leftTermCount > leftExpressionSockets.Count || rightWeightCount > rightExpressionSockets.Count)
-            {
-                Debug.LogWarning($"{SetDebugPrefix} Abort: equation does not fit sockets. leftOffsetWeightCount={leftOffsetWeightCount}, leftTermCount={leftTermCount}, leftSocketCount={leftExpressionSockets.Count}, rightWeightCount={rightWeightCount}, rightSocketCount={rightExpressionSockets.Count}");
-                return;
-            }
+            Debug.Log($"{SetDebugPrefix} Resolved layout. xSocket={DescribeSocket(plan.VariableSocket)}, leftWeightSockets={DescribeSockets(plan.LeftWeightSockets)}, rightWeightSockets={DescribeSockets(plan.RightWeightSockets)}");
 
-            var leftStartIndex = leftExpressionSockets.Count - leftTermCount;
-            Debug.Log($"{SetDebugPrefix} Planned layout. leftStartIndex={leftStartIndex}, expected left: empty before start, x at {leftStartIndex}, weights at {string.Join(",", Enumerable.Range(leftStartIndex + 1, leftOffsetWeightCount))}; expected right weights at {string.Join(",", Enumerable.Range(0, rightWeightCount))}");
-
-            var leftVariableSocket = GetSocketByVisualIndex(leftExpressionSockets, leftStartIndex);
-            var leftWeightSockets = new List<XRSocketInteractor>();
-            for (var i = 0; i < leftOffsetWeightCount; i++)
-            {
-                leftWeightSockets.Add(GetSocketByVisualIndex(leftExpressionSockets, leftStartIndex + 1 + i));
-            }
-
-            var rightWeightSockets = new List<XRSocketInteractor>();
-            for (var i = 0; i < rightWeightCount; i++)
-            {
-                rightWeightSockets.Add(GetSocketByVisualIndex(rightExpressionSockets, i));
-            }
-
-            if (leftVariableSocket == null
-                || leftWeightSockets.Any(socket => socket == null)
-                || rightWeightSockets.Any(socket => socket == null))
-            {
-                Debug.LogWarning($"{SetDebugPrefix} Abort: requested socket missing. leftVariable={DescribeSocket(leftVariableSocket)}, leftWeights={DescribeSockets(leftWeightSockets)}, rightWeights={DescribeSockets(rightWeightSockets)}");
-                return;
-            }
-
-            Debug.Log($"{SetDebugPrefix} Resolved layout. xSocket={DescribeSocket(leftVariableSocket)}, leftWeightSockets={DescribeSockets(leftWeightSockets)}, rightWeightSockets={DescribeSockets(rightWeightSockets)}");
-
-            var neededWeightCount = leftOffsetWeightCount + rightWeightCount;
-            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude)
+            var allWeights = FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
                 .Where(weight => weight != null && !IsSameHierarchy(weight.transform, variableBox.transform))
                 .OrderBy(weight => Vector3.Distance(weight.transform.position, boardRoot.position))
                 .ToList();
 
-            if (allWeights.Count < neededWeightCount)
+            if (allWeights.Count < plan.RequiredWeightCount)
             {
-                Debug.LogWarning($"{SetDebugPrefix} Abort: not enough weights. needed={neededWeightCount}, found={allWeights.Count}");
+                Debug.LogWarning($"{SetDebugPrefix} Abort: not enough weights. needed={plan.RequiredWeightCount}, found={allWeights.Count}");
                 return;
             }
 
@@ -1327,33 +1222,17 @@ namespace VrMath.Lesson
             Debug.Log($"{SetDebugPrefix} After reset. leftSelections={DescribeSocketSelections(leftSockets)}, rightSelections={DescribeSocketSelections(rightSockets)}");
 
             var weights = allWeights
-                .Take(neededWeightCount)
+                .Take(plan.RequiredWeightCount)
                 .ToList();
             Debug.Log($"{SetDebugPrefix} Selected weights for placement: {string.Join(", ", weights.Select(DescribeWeight))}");
 
-            Debug.Log($"{SetDebugPrefix} Placing X '{variableBox.name}' into {DescribeSocket(leftVariableSocket)}");
-            PlaceVariableBoxInSocket(variableBox, leftVariableSocket);
-            Debug.Log($"{SetDebugPrefix} After placing X. socket={DescribeSocket(leftVariableSocket)}, selected={DescribeSocketSelection(leftVariableSocket)}");
-
-            for (var i = 0; i < leftOffsetWeightCount; i++)
+            if (!socketPlacer.TryPlace(plan, variableBox, weights, out var usedWeights, out var placeError))
             {
-                var weight = weights[i];
-                weight.Weight.Value = 1f;
-                Debug.Log($"{SetDebugPrefix} Placing LEFT weight[{i}] {DescribeWeight(weight)} into requested visual index {leftStartIndex + 1 + i}: {DescribeSocket(leftWeightSockets[i])}");
-                PlaceWeightInSocket(weight, leftWeightSockets[i]);
-                Debug.Log($"{SetDebugPrefix} After LEFT weight[{i}]. socket={DescribeSocket(leftWeightSockets[i])}, selected={DescribeSocketSelection(leftWeightSockets[i])}");
+                Debug.LogWarning($"{SetDebugPrefix} Abort: {placeError}");
+                return;
             }
 
-            for (var i = 0; i < rightWeightCount; i++)
-            {
-                var weight = weights[leftOffsetWeightCount + i];
-                weight.Weight.Value = 1f;
-                Debug.Log($"{SetDebugPrefix} Placing RIGHT weight[{i}] {DescribeWeight(weight)} into requested visual index {i}: {DescribeSocket(rightWeightSockets[i])}");
-                PlaceWeightInSocket(weight, rightWeightSockets[i]);
-                Debug.Log($"{SetDebugPrefix} After RIGHT weight[{i}]. socket={DescribeSocket(rightWeightSockets[i])}, selected={DescribeSocketSelection(rightWeightSockets[i])}");
-            }
-
-            StashUnusedWeightsOffBoard(allWeights, weights);
+            boardClearer.ClearUnusedWeights(allWeights, usedWeights, boardRoot, boardHalfWidth);
             variableExpressionObjectsPlaced = true;
             Debug.Log($"{SetDebugPrefix} Placement complete. leftSelections={DescribeSocketSelections(leftSockets)}, rightSelections={DescribeSocketSelections(rightSockets)}");
         }
@@ -1367,10 +1246,7 @@ namespace VrMath.Lesson
             // 1. 左右ソケットの選択を解除
             // 2. 重りを全部 1 に戻して板の外へ退避
             // 3. x 箱も板の外へ退避
-            ClearSocketSelections(leftSockets);
-            ClearSocketSelections(rightSockets);
-            StashWeightsOffBoard(weights, resetWeightValues: true);
-            StashVariableBoxOffBoard(variableBox);
+            boardClearer.Clear(leftSockets, rightSockets, weights, variableBox, boardRoot, boardHalfWidth);
         }
 
         /// <summary>
@@ -1384,34 +1260,6 @@ namespace VrMath.Lesson
                 .Where(socket => socket != null)
                 .Take(4)
                 .ToList();
-        }
-
-        /// <summary>
-        /// 見た目の左から右へ 0,1,2,3 として設定された Index のソケットを返します。
-        /// </summary>
-        private static XRSocketInteractor GetSocketByVisualIndex(IReadOnlyList<XRSocketInteractor> sockets, int index)
-        {
-            // BalanceBoardSocketSlot がある場合は Inspector の Index を正とする。
-            // 親の Index を拾うと子ソケット全部が同じ番号扱いになるため、配置時はソケット自身の設定だけを見る。
-            // 未設定の古いソケットでも動くよう、最後だけ配列順へフォールバックする。
-            foreach (var socket in sockets)
-            {
-                if (socket == null)
-                {
-                    continue;
-                }
-
-                var slot = socket.GetComponent<BalanceBoardSocketSlot>();
-                if (slot != null && slot.Index == index)
-                {
-                    Debug.Log($"{SetDebugPrefix} GetSocketByVisualIndex({index}) matched component slot: {DescribeSocket(socket)}");
-                    return socket;
-                }
-            }
-
-            var fallback = index >= 0 && index < sockets.Count ? sockets[index] : null;
-            Debug.LogWarning($"{SetDebugPrefix} GetSocketByVisualIndex({index}) used list-order fallback: {DescribeSocket(fallback)}");
-            return fallback;
         }
 
         private static string DescribeSockets(IEnumerable<XRSocketInteractor> sockets)
@@ -1508,79 +1356,12 @@ namespace VrMath.Lesson
         }
 
         /// <summary>
-        /// 重りを平均台外へ退避させ、必要に応じて重さ値を 1 に戻します。
-        /// </summary>
-        private void StashWeightsOffBoard(IReadOnlyList<WeightedDumbbell> weights, bool resetWeightValues)
-        {
-            // 配置前に未使用の重りを平均台の外へ寄せる。
-            // resetWeightValues が true のときは、前ステージで +2 にした重りも 1 に戻す。
-            for (var i = 0; i < weights.Count; i++)
-            {
-                var weight = weights[i];
-                if (weight == null)
-                {
-                    continue;
-                }
-
-                if (resetWeightValues)
-                {
-                    weight.Weight.Value = 1f;
-                }
-
-                var row = i / 6;
-                var column = i % 6;
-                var localPosition = new Vector3(boardHalfWidth + 0.85f + column * 0.14f, 0.9f, -0.75f - row * 0.14f);
-                weight.transform.SetPositionAndRotation(boardRoot.TransformPoint(localPosition), boardRoot.rotation);
-
-                if (weight.TryGetComponent(out Rigidbody rb))
-                {
-                    rb.isKinematic = false;
-                    rb.linearVelocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 式に使わなかった重りを、配置後にも平均台外へ退避させます。
-        /// </summary>
-        private void StashUnusedWeightsOffBoard(IReadOnlyList<WeightedDumbbell> allWeights, IReadOnlyCollection<WeightedDumbbell> usedWeights)
-        {
-            var unusedWeights = allWeights
-                .Where(weight => weight != null && !usedWeights.Contains(weight))
-                .ToList();
-            StashWeightsOffBoard(unusedWeights, resetWeightValues: true);
-        }
-
-        /// <summary>
-        /// x 箱を平均台外へ退避させ、速度と回転速度をリセットします。
-        /// </summary>
-        private void StashVariableBoxOffBoard(XRGrabInteractable variableBox)
-        {
-            // x 箱が前のソケット選択や平均台上に残らないよう、左奥へ一度逃がす。
-            if (variableBox == null || boardRoot == null)
-            {
-                return;
-            }
-
-            var localPosition = new Vector3(-boardHalfWidth - 0.85f, 0.9f, -0.75f);
-            variableBox.transform.SetPositionAndRotation(boardRoot.TransformPoint(localPosition), boardRoot.rotation);
-
-            if (variableBox.TryGetComponent(out Rigidbody rb))
-            {
-                rb.isKinematic = false;
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-            }
-        }
-
-        /// <summary>
         /// シーン内から x 箱を解決し、掴める XR オブジェクトとして準備します。
         /// </summary>
         private static XRGrabInteractable ResolveVariableBox()
         {
             // 名前から x 箱を見つけ、XRGrabInteractable がなければ追加する。
-            foreach (var grab in FindObjectsByType<XRGrabInteractable>(FindObjectsInactive.Exclude))
+            foreach (var grab in FindObjectsByType<XRGrabInteractable>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (grab != null && LooksLikeVariableBox(grab.name))
                 {
@@ -1589,7 +1370,7 @@ namespace VrMath.Lesson
                 }
             }
 
-            foreach (var transform in FindObjectsByType<Transform>(FindObjectsInactive.Exclude))
+            foreach (var transform in FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (transform == null || !LooksLikeVariableBox(transform.name))
                 {
@@ -1659,236 +1440,6 @@ namespace VrMath.Lesson
         }
 
         /// <summary>
-        /// x 箱を指定ソケットの Attach Transform に合わせ、XRSocketInteractor に手動選択させます。
-        /// </summary>
-        private static void PlaceVariableBoxInSocket(XRGrabInteractable variableBox, XRSocketInteractor socket)
-        {
-            // x 箱を指定ソケットの Attach Transform へ移動し、SocketInteractor に手動選択させる。
-            if (variableBox == null || socket == null)
-            {
-                return;
-            }
-
-            PrepareVariableInteractable(variableBox);
-
-            var attach = socket.attachTransform != null ? socket.attachTransform : socket.transform;
-            variableBox.transform.SetPositionAndRotation(attach.position, attach.rotation);
-
-            if (variableBox.TryGetComponent(out Rigidbody rb))
-            {
-                rb.isKinematic = false;
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
-            }
-
-            if (socket.interactionManager == null)
-            {
-                socket.interactionManager = Object.FindAnyObjectByType<XRInteractionManager>();
-            }
-
-            if (socket.interactionManager != null && !socket.hasSelection)
-            {
-                socket.StartManualInteraction((IXRSelectInteractable)variableBox);
-            }
-        }
-
-        /// <summary>
-        /// 指定ソケット群から、現在選択されている重りや x 箱をすべて外します。
-        /// </summary>
-        private static void ClearSocketSelections(IEnumerable<XRSocketInteractor> sockets)
-        {
-            // ソケットに刺さっている重り/x を外す。これをしないと次の式配置に前の選択が混ざる。
-            foreach (var socket in sockets)
-            {
-                if (socket == null || !socket.hasSelection)
-                {
-                    continue;
-                }
-
-                if (socket.interactionManager == null)
-                {
-                    socket.interactionManager = Object.FindAnyObjectByType<XRInteractionManager>();
-                }
-
-                if (socket.interactionManager == null)
-                {
-                    continue;
-                }
-
-                var selected = socket.interactablesSelected.ToArray();
-                foreach (var interactable in selected)
-                {
-                    socket.interactionManager.SelectExit(socket, interactable);
-                }
-            }
-        }
-
-        /// <summary>
-        /// 指定した辺のソケットに入っている選択物の重さ合計を返します。
-        /// </summary>
-        private float ReadSideTotal(BalanceSide side)
-        {
-            // 平均台の傾き用。各ソケットの選択物から実重量を合計する。
-            var sockets = side == BalanceSide.Left ? leftSockets : rightSockets;
-            var total = 0f;
-
-            foreach (var socket in sockets)
-            {
-                if (socket == null || !socket.hasSelection)
-                {
-                    continue;
-                }
-
-                foreach (var interactable in socket.interactablesSelected)
-                {
-                    total += ReadInteractableWeight(interactable.transform);
-                }
-            }
-
-            return total;
-        }
-
-        /// <summary>
-        /// x 問題の現在状態を、カード表示用の式、答え表示、成功判定へ変換します。
-        /// </summary>
-        private VariableEquationState ReadVariableEquationState()
-        {
-            // x 問題のカード表示用に、左右のソケット状態を式へ変換する。
-            var leftHasVariable = ReadVariableSide(leftSockets, variableLeftWeights);
-            var rightHasVariable = ReadVariableSide(rightSockets, variableRightWeights);
-
-            var leftWeightTotal = variableLeftWeights.Sum();
-            var rightWeightTotal = variableRightWeights.Sum();
-            var leftTotal = (leftHasVariable ? answerValue : 0) + leftWeightTotal;
-            var rightTotal = rightWeightTotal;
-            var leftExpression = BuildVariableExpression(leftHasVariable, leftWeightTotal);
-            var rightExpression = rightWeightTotal > 0 ? rightWeightTotal.ToString() : "?";
-            var solvedValue = rightWeightTotal;
-            var isSolved = leftHasVariable && !rightHasVariable && leftWeightTotal == 0 && solvedValue > 0;
-
-            if (isSolved)
-            {
-                return new VariableEquationState(
-                    $"x = {solvedValue}",
-                    "せいかい！",
-                    $"答えは {solvedValue}",
-                    solvedValue,
-                    rightTotal,
-                    true);
-            }
-
-            return new VariableEquationState(
-                $"{leftExpression} = {rightExpression}",
-                "",
-                "",
-                leftTotal,
-                rightTotal,
-                false);
-        }
-
-        /// <summary>
-        /// 片側のソケット群から、x の有無と重り値リストを読み取ります。
-        /// </summary>
-        private static bool ReadVariableSide(IEnumerable<XRSocketInteractor> sockets, List<int> weights)
-        {
-            // 片側のソケットを読み、重りの値リストと x の有無を取り出す。
-            weights.Clear();
-            var hasVariable = false;
-
-            foreach (var socket in sockets)
-            {
-                if (socket == null || !socket.hasSelection)
-                {
-                    continue;
-                }
-
-                foreach (var interactable in socket.interactablesSelected)
-                {
-                    var transform = interactable.transform;
-                    var weight = transform.GetComponentInParent<WeightedDumbbell>();
-                    if (weight != null)
-                    {
-                        var value = Mathf.RoundToInt(weight.Weight.Value);
-                        if (value > 0)
-                        {
-                            weights.Add(value);
-                        }
-
-                        continue;
-                    }
-
-                    if (LooksLikeVariableTransform(transform))
-                    {
-                        hasVariable = true;
-                    }
-                }
-            }
-
-            weights.Sort();
-            return hasVariable;
-        }
-
-        /// <summary>
-        /// x の有無と重り合計から、左辺に表示する式文字列を作ります。
-        /// </summary>
-        private static string BuildVariableExpression(bool hasVariable, int weightTotal)
-        {
-            if (hasVariable && weightTotal > 0)
-            {
-                return $"x + {weightTotal}";
-            }
-
-            if (hasVariable)
-            {
-                return "x";
-            }
-
-            return weightTotal > 0 ? weightTotal.ToString() : "?";
-        }
-
-        /// <summary>
-        /// 重り値リストを、1 + 1 + 1 のような表示用文字列へ変換します。
-        /// </summary>
-        private static string BuildWeightExpression(IReadOnlyCollection<int> weights)
-        {
-            return weights.Count == 0 ? "?" : string.Join(" + ", weights.Select(value => value.ToString()));
-        }
-
-        /// <summary>
-        /// 左右の合計重量を比較し、カード表示用の =、&lt;、&gt; を返します。
-        /// </summary>
-        private static string GetComparisonSymbol(float leftTotal, float rightTotal)
-        {
-            if (Mathf.Approximately(leftTotal, rightTotal))
-            {
-                return "=";
-            }
-
-            return leftTotal < rightTotal ? "<" : ">";
-        }
-
-        /// <summary>
-        /// 指定 Transform が表す選択物の重さを、重りまたは x 箱として読み取ります。
-        /// </summary>
-        private float ReadInteractableWeight(Transform interactableTransform)
-        {
-            // 傾き計算用。普通の重りは WeightedDumbbell.Value、x 箱は answerValue として扱う。
-            if (interactableTransform == null)
-            {
-                return 0f;
-            }
-
-            var weight = interactableTransform.GetComponentInParent<WeightedDumbbell>();
-            if (weight != null)
-            {
-                return weight.Weight.Value;
-            }
-
-            return LooksLikeVariableBox(interactableTransform.name) ? answerValue : 0f;
-        }
-
-        /// <summary>
         /// 指定 Transform とその親階層に、x 箱として扱う名前が含まれているか判定します。
         /// </summary>
         private static bool LooksLikeVariableTransform(Transform transform)
@@ -1917,26 +1468,6 @@ namespace VrMath.Lesson
             }
 
             return left == right || left.IsChildOf(right) || right.IsChildOf(left);
-        }
-
-        private readonly struct VariableEquationState
-        {
-            public VariableEquationState(string problem, string operation, string answer, float leftTotal, float rightTotal, bool isSolved)
-            {
-                Problem = problem;
-                Operation = operation;
-                Answer = answer;
-                LeftTotal = leftTotal;
-                RightTotal = rightTotal;
-                IsSolved = isSolved;
-            }
-
-            public string Problem { get; }
-            public string Operation { get; }
-            public string Answer { get; }
-            public float LeftTotal { get; }
-            public float RightTotal { get; }
-            public bool IsSolved { get; }
         }
 
         /// <summary>
@@ -1987,7 +1518,7 @@ namespace VrMath.Lesson
             }
 
             var preparedCount = 0;
-            foreach (var weight in FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude))
+            foreach (var weight in FindObjectsByType<WeightedDumbbell>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (weight == null)
                 {

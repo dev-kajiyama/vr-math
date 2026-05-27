@@ -642,7 +642,7 @@ namespace VrMath.Rendering
 
         private Button FindSceneButtonByNames(params string[] names)
         {
-            var buttons = FindObjectsByType<Button>(FindObjectsInactive.Include);
+            var buttons = FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             return buttons
                 .Where(button => button != null && names.Any(name => string.Equals(button.name, name, System.StringComparison.OrdinalIgnoreCase)))
                 .OrderBy(button => Vector3.SqrMagnitude(button.transform.position - transform.position))
@@ -917,7 +917,7 @@ namespace VrMath.Rendering
             var eventSystem = EventSystem.current;
             if (eventSystem == null)
             {
-                foreach (var candidate in FindObjectsByType<EventSystem>(FindObjectsInactive.Include))
+                foreach (var candidate in FindObjectsByType<EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 {
                     eventSystem = candidate;
                     break;

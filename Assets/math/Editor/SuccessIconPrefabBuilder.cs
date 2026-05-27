@@ -154,7 +154,7 @@ namespace VrMath.Editor
                 return mainCard.transform;
             }
 
-            var cardRoots = Object.FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include);
+            var cardRoots = Object.FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var display in cardRoots)
             {
                 if (display != null && display.name == "CoachingCardRoot")
