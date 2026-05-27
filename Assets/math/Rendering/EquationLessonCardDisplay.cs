@@ -42,6 +42,12 @@ namespace VrMath.Rendering
         [SerializeField, Tooltip("正解時の式エリア色。")]
         private Color correctBackgroundColor = new(0.05f, 0.45f, 0.22f, 0.95f);
 
+        [SerializeField, Tooltip("正解時に表示するチェックアイコン。未設定なら自動生成します。")]
+        private Image successIcon;
+
+        [SerializeField, Tooltip("リング描画つきの成功アイコン Animator。未設定なら子から探します。")]
+        private SuccessIconAnimator successIconAnimator;
+
         [SerializeField, Tooltip("正解後に次へ進むボタン。未設定なら自動生成します。")]
         private Button nextButton;
 
@@ -104,6 +110,7 @@ namespace VrMath.Rendering
         private UnityAction generateButtonAction;
         private UnityAction setButtonAction;
         private bool processButtonsEnabled;
+        private static Sprite successCheckSprite;
 
         public string CurrentProblemText { get; private set; } = "";
 
@@ -125,6 +132,7 @@ namespace VrMath.Rendering
         {
             AutoAssignTextReferences();
             AutoAssignStatusBackgrounds();
+            EnsureSuccessIcon();
             EnsureNextButton();
             EnsureUiInputAvailable();
             SetCorrectState(false);
@@ -159,6 +167,7 @@ namespace VrMath.Rendering
         {
             CurrentProblemText = newProblem;
             SanitizeTextReferences();
+            SetSuccessIconVisible(false);
             SetCorrectState(false);
 
             if (combinedText != null)
@@ -319,8 +328,25 @@ namespace VrMath.Rendering
 
         public void ShowEquationCorrect(string solvedEquation, string solvedAnswer)
         {
-            Show("", solvedEquation, "せいかい！", solvedAnswer);
+            ClearDisplayedText();
+            SetSuccessIconVisible(true);
             SetCorrectState(true);
+        }
+
+        private void ClearDisplayedText()
+        {
+            CurrentProblemText = "";
+            SanitizeTextReferences();
+
+            if (combinedText != null)
+            {
+                combinedText.text = "";
+            }
+
+            SetText(titleText, "");
+            SetText(problemText, "");
+            SetText(operationText, "");
+            SetText(answerText, "");
         }
 
         private void AutoAssignTextReferences()
@@ -413,6 +439,151 @@ namespace VrMath.Rendering
             ConfigureNextButtonInteraction();
 
             nextButton.gameObject.SetActive(false);
+        }
+
+        private void EnsureSuccessIcon()
+        {
+            if (successIconAnimator == null)
+            {
+                successIconAnimator = GetComponentInChildren<SuccessIconAnimator>(true);
+            }
+
+            if (successIconAnimator != null)
+            {
+                successIconAnimator.Hide();
+                return;
+            }
+
+            if (successIcon == null)
+            {
+                var iconTransform = transform.Find("SuccessCheckIcon");
+                if (iconTransform != null)
+                {
+                    successIcon = iconTransform.GetComponent<Image>();
+                }
+            }
+
+            if (successIcon == null)
+            {
+                var iconObject = new GameObject("SuccessCheckIcon", typeof(RectTransform), typeof(Image));
+                iconObject.transform.SetParent(transform, false);
+                successIcon = iconObject.GetComponent<Image>();
+            }
+
+            var rectTransform = successIcon.GetComponent<RectTransform>();
+            rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+            rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            rectTransform.anchoredPosition = new Vector2(0f, -82f);
+            rectTransform.sizeDelta = new Vector2(170f, 170f);
+
+            if (successIcon.sprite == null)
+            {
+                successIcon.sprite = GetSuccessCheckSprite();
+            }
+
+            successIcon.color = Color.white;
+            successIcon.raycastTarget = false;
+            successIcon.preserveAspect = true;
+            successIcon.gameObject.SetActive(false);
+        }
+
+        private void SetSuccessIconVisible(bool visible)
+        {
+            EnsureSuccessIcon();
+            if (successIconAnimator != null)
+            {
+                if (visible)
+                {
+                    successIconAnimator.transform.SetAsLastSibling();
+                    successIconAnimator.Play();
+                }
+                else
+                {
+                    successIconAnimator.Hide();
+                }
+
+                return;
+            }
+
+            successIcon.gameObject.SetActive(visible);
+            if (visible)
+            {
+                successIcon.transform.SetAsLastSibling();
+            }
+        }
+
+        private static Sprite GetSuccessCheckSprite()
+        {
+            if (successCheckSprite != null)
+            {
+                return successCheckSprite;
+            }
+
+            const int size = 128;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = "RuntimeSuccessCheckIcon"
+            };
+
+            var pixels = new Color32[size * size];
+            var center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+            const float outerRadius = 55f;
+            const float ringRadius = 42f;
+
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var distance = Vector2.Distance(new Vector2(x, y), center);
+                    var index = y * size + x;
+
+                    if (distance <= outerRadius)
+                    {
+                        pixels[index] = distance >= ringRadius
+                            ? new Color32(182, 245, 169, 255)
+                            : new Color32(66, 166, 86, 255);
+                    }
+                    else
+                    {
+                        pixels[index] = new Color32(0, 0, 0, 0);
+                    }
+                }
+            }
+
+            DrawLine(pixels, size, new Vector2Int(39, 67), new Vector2Int(56, 84), 7, Color.white);
+            DrawLine(pixels, size, new Vector2Int(55, 84), new Vector2Int(91, 45), 7, Color.white);
+
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            successCheckSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+            return successCheckSprite;
+        }
+
+        private static void DrawLine(Color32[] pixels, int size, Vector2Int start, Vector2Int end, int thickness, Color color)
+        {
+            var halfThickness = thickness * 0.5f;
+            var startVector = new Vector2(start.x, start.y);
+            var endVector = new Vector2(end.x, end.y);
+            var segment = endVector - startVector;
+            var segmentLengthSquared = segment.sqrMagnitude;
+            var color32 = (Color32)color;
+
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var point = new Vector2(x, y);
+                    var t = segmentLengthSquared > 0f
+                        ? Mathf.Clamp01(Vector2.Dot(point - startVector, segment) / segmentLengthSquared)
+                        : 0f;
+                    var closest = startVector + segment * t;
+                    if (Vector2.Distance(point, closest) <= halfThickness)
+                    {
+                        pixels[y * size + x] = color32;
+                    }
+                }
+            }
         }
 
         private Button FindExistingNextButton()
@@ -576,12 +747,7 @@ namespace VrMath.Rendering
                 button.onClick.AddListener(action);
             }
 
-            var image = button.GetComponent<Image>();
-            if (image != null)
-            {
-                image.enabled = true;
-                image.raycastTarget = true;
-            }
+            EnsureButtonHitTarget(button);
 
             var proxy = button.GetComponent<XRButtonSelectProxy>();
             if (proxy == null)
@@ -638,12 +804,7 @@ namespace VrMath.Rendering
             nextButton.onClick.RemoveAllListeners();
             nextButton.onClick.AddListener(InvokeNextButtonAction);
 
-            var image = nextButton.GetComponent<Image>();
-            if (image != null)
-            {
-                image.enabled = true;
-                image.raycastTarget = true;
-            }
+            EnsureButtonHitTarget(nextButton);
 
             var proxy = nextButton.GetComponent<XRButtonSelectProxy>();
             if (proxy == null)
@@ -653,6 +814,41 @@ namespace VrMath.Rendering
 
             proxy.SetOverrideAction(InvokeNextButtonAction);
             proxy.RefreshCollider();
+        }
+
+        private static void EnsureButtonHitTarget(Button button)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.enabled = true;
+            button.interactable = true;
+
+            var targetGraphic = button.targetGraphic;
+            if (targetGraphic == null)
+            {
+                targetGraphic = button.GetComponent<Graphic>();
+            }
+
+            if (targetGraphic == null)
+            {
+                targetGraphic = button.GetComponentsInChildren<Graphic>(true)
+                    .FirstOrDefault(graphic => graphic is Image);
+            }
+
+            if (targetGraphic != null)
+            {
+                targetGraphic.enabled = true;
+                targetGraphic.raycastTarget = true;
+                button.targetGraphic = targetGraphic;
+            }
+
+            foreach (var text in button.GetComponentsInChildren<TMP_Text>(true))
+            {
+                text.raycastTarget = false;
+            }
         }
 
         private void InvokeNextButtonAction()

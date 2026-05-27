@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
@@ -60,11 +62,11 @@ namespace VrMath.Lesson
         }
 
         /// <summary>
-        /// SampleScene 1 にだけ、式バランスゲーム管理用 GameObject を一度だけ作成します。
+        /// 式バランスゲーム用の平均台とカードがあるシーンに、管理用 GameObject を一度だけ作成します。
         /// </summary>
         private static void TryBootstrap(Scene scene)
         {
-            if (!scene.IsValid() || scene.name != "SampleScene 1")
+            if (!ShouldBootstrapScene(scene))
             {
                 return;
             }
@@ -75,6 +77,32 @@ namespace VrMath.Lesson
             }
 
             new GameObject(BootstrapObjectName).AddComponent<SampleSceneExpressionBalanceBootstrap>();
+        }
+
+        /// <summary>
+        /// リネーム後のシーンでも、必要な構成があれば式バランスゲームとして起動できるか判定します。
+        /// </summary>
+        private static bool ShouldBootstrapScene(Scene scene)
+        {
+            if (!scene.IsValid())
+            {
+                return false;
+            }
+
+            if (scene.name == "SampleScene 1")
+            {
+                return true;
+            }
+
+            var boardObject = GameObject.Find("BalanceBoard_Simple");
+            if (boardObject == null)
+            {
+                return false;
+            }
+
+            return FindAnyObjectByType<ExpressionBalanceMainCard>(FindObjectsInactive.Include) != null
+                   || FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include)
+                       .Any(display => display != null && display.name == "CoachingCardRoot");
         }
 
         [SerializeField, Min(1), Tooltip("x の正解値です。x + offset = rightSide の x にあたります。")]
@@ -124,6 +152,7 @@ namespace VrMath.Lesson
 
         private Transform boardRoot;
         private Transform boardVisual;
+        private ExpressionBalanceMainCard mainCardMarker;
         private EquationLessonCardDisplay cardDisplay;
         private readonly List<XRSocketInteractor> leftSockets = new();
         private readonly List<XRSocketInteractor> rightSockets = new();
@@ -188,10 +217,13 @@ namespace VrMath.Lesson
 
             ResolveStaticSockets();
 
-            if (cardDisplay == null)
+            if (mainCardMarker == null || cardDisplay == null)
             {
-                cardDisplay = FindAnyObjectByType<EquationLessonCardDisplay>();
+                mainCardMarker = FindMainEquationCardMarker();
+                cardDisplay = mainCardMarker != null ? mainCardMarker.Display : FindMainEquationCardDisplayFallback();
             }
+
+            DisableNonMainCardRaycasts(cardDisplay);
 
             if (cardDisplay != null && subscribedCardDisplay != cardDisplay)
             {
@@ -206,6 +238,103 @@ namespace VrMath.Lesson
             AutoAssignExpressionFootprints();
             PrepareWeightInteractablesForSockets();
             TryPlaceInitialFixedWeights();
+        }
+
+        /// <summary>
+        /// 式表示とボタン入力を受け持つメインカード marker を探します。
+        /// </summary>
+        private static ExpressionBalanceMainCard FindMainEquationCardMarker()
+        {
+            var markers = FindObjectsByType<ExpressionBalanceMainCard>(FindObjectsInactive.Include)
+                .Where(marker => marker != null && marker.Display != null)
+                .ToList();
+
+            if (markers.Count == 0)
+            {
+                return null;
+            }
+
+            var activeMarker = markers.FirstOrDefault(marker => marker.gameObject.activeInHierarchy);
+            return activeMarker != null ? activeMarker : markers[0];
+        }
+
+        /// <summary>
+        /// 古いシーンで marker がまだ無い場合の移行用 fallback です。基本は ExpressionBalanceMainCard を付けます。
+        /// </summary>
+        private static EquationLessonCardDisplay FindMainEquationCardDisplayFallback()
+        {
+            var displays = FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include)
+                .Where(display => display != null && !IsSuccessOnlyCardDisplay(display))
+                .ToList();
+
+            if (displays.Count == 0)
+            {
+                return null;
+            }
+
+            var exactCoachingRoot = displays.FirstOrDefault(display => display.name == "CoachingCardRoot" && display.gameObject.activeInHierarchy);
+            if (exactCoachingRoot != null)
+            {
+                return exactCoachingRoot;
+            }
+
+            var activeDisplay = displays.FirstOrDefault(display => display.gameObject.activeInHierarchy);
+            return activeDisplay != null ? activeDisplay : displays[0];
+        }
+
+        private static void DisableNonMainCardRaycasts(EquationLessonCardDisplay mainDisplay)
+        {
+            foreach (var display in FindObjectsByType<EquationLessonCardDisplay>(FindObjectsInactive.Include))
+            {
+                if (display == null || display == mainDisplay)
+                {
+                    continue;
+                }
+
+                foreach (var graphic in display.GetComponentsInChildren<Graphic>(true))
+                {
+                    if (graphic != null)
+                    {
+                        graphic.raycastTarget = false;
+                    }
+                }
+
+                foreach (var selectable in display.GetComponentsInChildren<Selectable>(true))
+                {
+                    if (selectable != null)
+                    {
+                        selectable.interactable = false;
+                    }
+                }
+
+                foreach (var raycaster in display.GetComponentsInChildren<BaseRaycaster>(true))
+                {
+                    if (raycaster != null)
+                    {
+                        raycaster.enabled = false;
+                    }
+                }
+            }
+        }
+
+        private static bool IsSuccessOnlyCardDisplay(EquationLessonCardDisplay display)
+        {
+            return display != null && HasTransformNamed(display.transform, "SuccessCard");
+        }
+
+        private static bool HasTransformNamed(Transform transform, string objectName)
+        {
+            while (transform != null)
+            {
+                if (transform.name == objectName)
+                {
+                    return true;
+                }
+
+                transform = transform.parent;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -763,7 +892,10 @@ namespace VrMath.Lesson
         /// </summary>
         private static bool LooksLikeVariableBox(string objectName)
         {
-            return objectName.Equals("x", System.StringComparison.OrdinalIgnoreCase)
+            return objectName.Equals("xbox", System.StringComparison.OrdinalIgnoreCase)
+                   || objectName.Equals("x box", System.StringComparison.OrdinalIgnoreCase)
+                   || objectName.Equals("x_box", System.StringComparison.OrdinalIgnoreCase)
+                   || objectName.Contains("xbox", System.StringComparison.OrdinalIgnoreCase)
                    || objectName.Contains("x box", System.StringComparison.OrdinalIgnoreCase)
                    || objectName.Contains("x_box", System.StringComparison.OrdinalIgnoreCase)
                    || objectName.Contains("variable", System.StringComparison.OrdinalIgnoreCase);
@@ -1495,7 +1627,7 @@ namespace VrMath.Lesson
         {
             // x 問題のカード表示用に、左右のソケット状態を式へ変換する。
             var leftHasVariable = ReadVariableSide(leftSockets, variableLeftWeights);
-            ReadVariableSide(rightSockets, variableRightWeights);
+            var rightHasVariable = ReadVariableSide(rightSockets, variableRightWeights);
 
             var leftWeightTotal = variableLeftWeights.Sum();
             var rightWeightTotal = variableRightWeights.Sum();
@@ -1503,15 +1635,16 @@ namespace VrMath.Lesson
             var rightTotal = rightWeightTotal;
             var leftExpression = BuildVariableExpression(leftHasVariable, leftWeightTotal);
             var rightExpression = rightWeightTotal > 0 ? rightWeightTotal.ToString() : "?";
-            var isSolved = leftHasVariable && leftWeightTotal == 0 && rightWeightTotal == answerValue;
+            var solvedValue = rightWeightTotal;
+            var isSolved = leftHasVariable && !rightHasVariable && leftWeightTotal == 0 && solvedValue > 0;
 
             if (isSolved)
             {
                 return new VariableEquationState(
-                    $"x = {answerValue}",
+                    $"x = {solvedValue}",
                     "せいかい！",
-                    $"答えは {answerValue}",
-                    leftTotal,
+                    $"答えは {solvedValue}",
+                    solvedValue,
                     rightTotal,
                     true);
             }
